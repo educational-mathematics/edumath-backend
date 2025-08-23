@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from typing import Optional, Literal
 from datetime import datetime
 
@@ -7,8 +7,9 @@ class VakScores(BaseModel):
     auditivo: int
     kinestesico: int
 
-class UserBase(BaseModel):
+class UserCreate(BaseModel):
     email: EmailStr
+    password: str
     name: str
     first_login_done: bool = False
     vak_style: Optional[Literal['visual','auditivo','kinestesico']] = None
@@ -16,15 +17,19 @@ class UserBase(BaseModel):
     test_answered_by: Optional[Literal['alumno','representante']] = None
     test_date: Optional[datetime] = None
 
-class UserCreate(UserBase):
-    password: str
-
-class UserOut(UserBase):
-    id: int
-
-    class Config:
-        from_attributes = True  # pydantic v2
-
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+class UserOut(BaseModel):
+    id: int
+    email: EmailStr
+    name: str
+    first_login_done: bool
+    vak_style: Optional[Literal['visual','auditivo','kinestesico']] = None
+    vak_scores: Optional[VakScores] = None
+    test_answered_by: Optional[Literal['alumno','representante']] = None
+    test_date: Optional[datetime] = None
+
+    # IMPORTANTE para devolver ORM:
+    model_config = ConfigDict(from_attributes=True)
