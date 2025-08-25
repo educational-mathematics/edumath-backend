@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from app.db import Base, engine
 from app.routers import auth as auth_router
 from app.routers import user as user_router
+from app.routers import verification as verification_router
+from app.routers import password as password_router
 
 load_dotenv()
 
@@ -23,6 +25,8 @@ app.add_middleware(
 Base.metadata.create_all(bind=engine)
 
 app.include_router(auth_router.router)
+app.include_router(verification_router.router)
+app.include_router(password_router.router)
 app.include_router(user_router.router)
 
 @app.get("/health")

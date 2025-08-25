@@ -30,6 +30,7 @@ class UserOut(BaseModel):
     vak_scores: Optional[VakScores] = None
     test_answered_by: Optional[Literal['alumno','representante']] = None
     test_date: Optional[datetime] = None
-
+    email_verified: bool
+    avatar_url: Optional[str] = None
     # IMPORTANTE para devolver ORM:
     model_config = ConfigDict(from_attributes=True)

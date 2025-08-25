@@ -17,3 +17,6 @@ class User(Base):
 
     test_answered_by = Column(String(20), nullable=True)  # alumno | representante
     test_date = Column(DateTime(timezone=True), server_default=func.now())
+    
+    email_verified = Column(Boolean, default=False, nullable=False)
+    avatar_url = Column(String(512), nullable=True)
