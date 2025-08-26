@@ -15,17 +15,16 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserOut, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
-    # Verifica email único
+
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=409, detail="Email ya registrado")
 
-    # Pydantic v2: usa model_dump() para convertir submodelos
     vak_scores_dict = payload.vak_scores.model_dump() if payload.vak_scores else None
 
     user = User(
         email=payload.email,
         name=payload.name,
-        password=get_password_hash(payload.password),   # guarda HASH, no el texto plano
+        password=get_password_hash(payload.password),   # guarda HASH
         first_login_done=payload.first_login_done,
         vak_style=payload.vak_style,
         vak_scores=vak_scores_dict,
@@ -49,7 +48,7 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(),
             db: Session = Depends(get_db)):
-    email = form_data.username      # usamos el email en el campo username
+    email = form_data.username
     password = form_data.password
 
     user = db.query(User).filter(User.email == email).first()

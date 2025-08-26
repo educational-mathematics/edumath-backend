@@ -33,7 +33,7 @@ def send_code(payload: SendCodeIn, db: Session = Depends(get_db)):
             return {"message": "El correo ya está verificado"}
 
     code_row = _active_code(db, payload.email, purpose)
-    # Generar siempre un nuevo código (invalidamos los activos previos)
+
     if code_row:
         code_row.consumed = True
         db.commit()

@@ -22,11 +22,10 @@ class ResetIn(BaseModel):
 def forgot_password(payload: ForgotIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if not user:
-        # No reveles si existe o no
         return {"message": "Si el correo existe, se enviará un código"}
-    # Reutiliza /verification/send en el frontend, pero dejamos compatibilidad:
-    from app.routers.verification import send_code, SendCodeIn  # evitar duplicar lógica
-    send_code(SendCodeIn(email=payload.email, purpose="reset_password"), db)  # type: ignore
+    
+    from app.routers.verification import send_code, SendCodeIn
+    send_code(SendCodeIn(email=payload.email, purpose="reset_password"), db)
     return {"message": "Si el correo existe, se enviará un código"}
 
 @router.post("/reset", status_code=200)
