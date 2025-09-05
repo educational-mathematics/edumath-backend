@@ -21,8 +21,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# DEV: crea tablas si no existen (para producción usa Alembic)
-Base.metadata.create_all(bind=engine)
+# ⚠️ Solo en DEV si quieres crear tablas rápido (en prod usa Alembic)
+if os.getenv("DEV_AUTO_CREATE", "0") == "1":
+    Base.metadata.create_all(bind=engine)
 
 app.include_router(auth_router.router)
 app.include_router(verification_router.router)
