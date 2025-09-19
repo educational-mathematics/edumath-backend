@@ -34,3 +34,12 @@ class UserOut(BaseModel):
     avatar_url: Optional[str] = None
     # IMPORTANTE para devolver ORM:
     model_config = ConfigDict(from_attributes=True)
+    
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    first_login_done: Optional[bool] = None
+    vak_style: Optional[Literal['visual','auditivo','kinestesico']] = None
+    vak_scores: Optional[VakScores] = None
+    test_answered_by: Optional[Literal['alumno','representante']] = None
+    test_date: Optional[datetime] = None
+    avatar_url: Optional[str] = None
