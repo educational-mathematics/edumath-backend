@@ -21,6 +21,9 @@ class ResetIn(BaseModel):
 class ChangePwdIn(BaseModel):
     current_password: str
     new_password: str
+    
+class CheckPwdIn(BaseModel):
+    current_password: str
 
 @router.post("/forgot", status_code=200)
 def forgot_password(payload: ForgotIn, db: Session = Depends(get_db)):
@@ -70,3 +73,11 @@ def change_password(payload: ChangePwdIn,
     db.add(current_user)
     db.commit()
     return {"message": "Contraseña actualizada"}
+
+@router.post("/check-password", status_code=200)
+def check_password(payload: CheckPwdIn,
+                    db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
+    if not verify_password(payload.current_password, current_user.password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contraseña actual incorrecta")
+    return {"ok": True}
