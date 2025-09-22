@@ -7,10 +7,19 @@ from app.routers import auth as auth_router
 from app.routers import user as user_router
 from app.routers import verification as verification_router
 from app.routers import password as password_router
+from app.routers import ranking as ranking_router
+from app.routers import ranking as ranking_router
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
 app = FastAPI(title="EduMath API")
+
+# Crea carpetas si no existen
+os.makedirs("static/avatars", exist_ok=True)
+
+# Monta /static para servir archivos
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 origins = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else ["http://localhost:4200"]
 app.add_middleware(
@@ -29,6 +38,7 @@ app.include_router(auth_router.router)
 app.include_router(verification_router.router)
 app.include_router(password_router.router)
 app.include_router(user_router.router)
+app.include_router(ranking_router.router)
 
 @app.get("/health")
 def health():

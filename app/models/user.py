@@ -12,11 +12,15 @@ class User(Base):
 
     first_login_done = Column(Boolean, default=False)
 
-    vak_style = Column(String(20), nullable=True)  # visual | auditivo | kinestesico
-    vak_scores = Column(JSON, nullable=True)       # {"visual":13,"auditivo":12,"kinestesico":19}
+    vak_style = Column(String(20), nullable=True)
+    vak_scores = Column(JSON, nullable=True)
 
-    test_answered_by = Column(String(20), nullable=True)  # alumno | representante
+    test_answered_by = Column(String(20), nullable=True)
     test_date = Column(DateTime(timezone=True), server_default=func.now())
     
     email_verified = Column(Boolean, default=False, nullable=False)
     avatar_url = Column(String(512), nullable=True)
+    
+    points = Column(Integer, nullable=False, default=0)
+    alias = Column(String(32), unique=True, nullable=True)
+    badges = Column(JSON, nullable=True)
