@@ -43,3 +43,5 @@ app.include_router(ranking_router.router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+#ayuda
