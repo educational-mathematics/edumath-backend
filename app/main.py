@@ -10,9 +10,16 @@ from app.routers import password as password_router
 from app.routers import ranking as ranking_router
 from app.routers import ranking as ranking_router
 from fastapi.staticfiles import StaticFiles
+from app.routers import badges as badges_router
+
+# 👇 importa TODOS los modelos que definen tablas
+from app.models import user  # ya lo tienes
+from app.models import badge      # <-- asegúrate que exista app/models/badge.py
+from app.models import user_badge # <-- y app/models/user_badge.py
+from app.routers import me as me_router
 
 load_dotenv()
-
+Base.metadata.create_all(bind=engine)
 app = FastAPI(title="EduMath API")
 
 # Crea carpetas si no existen
@@ -39,6 +46,8 @@ app.include_router(verification_router.router)
 app.include_router(password_router.router)
 app.include_router(user_router.router)
 app.include_router(ranking_router.router)
+app.include_router(badges_router.router)
+app.include_router(me_router.router)
 
 @app.get("/health")
 def health():

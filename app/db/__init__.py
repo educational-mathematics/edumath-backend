@@ -1,7 +1,8 @@
 import os
 from sqlalchemy import create_engine, MetaData
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from dotenv import load_dotenv
+from typing import Generator
 
 load_dotenv()
 
@@ -17,3 +18,13 @@ NAMING_CONVENTION = {
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base(metadata=MetaData(naming_convention=NAMING_CONVENTION))
+
+def get_db() -> Generator[Session, None, None]:
+    """Dependency de FastAPI para obtener y cerrar la sesión de DB por request."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+__all__ = ["Base", "engine", "SessionLocal", "get_db"]
