@@ -44,8 +44,37 @@ def award_king_if_top1(db: Session, user_id: int, *, min_points: int = 1000) -> 
 
     if top and top[0] == user_id and (top[1] or 0) >= min_points:
         try:
-            award_by_slug(db, user_id, "king")
+            award_by_slug(db, user_id, "rey")
             return True
         except (BadgeAlreadyOwned, BadgeNotFound):
             return False
     return False
+
+def on_points_changed(db: Session, user_id: int, old_points: int, new_points: int) -> list[str]:
+    """
+    Devuelve slugs recién otorgados. Idempotente.
+    Reglas: umbrales y 'king' si aplica.
+    """
+    awarded: list[str] = []
+
+    def try_award(slug: str):
+        nonlocal awarded
+        try:
+            award_by_slug(db, user_id, slug)
+            awarded.append(slug)
+        except (BadgeAlreadyOwned, BadgeNotFound):
+            pass
+
+    # Umbrales
+    if old_points < 1000 <= new_points:
+        try_award("principiante-elite")
+    if old_points < 10000 <= new_points:
+        try_award("estrella-platinada")
+    if old_points < 1_000_000 <= new_points:
+        try_award("leyenda-viva")
+
+    # King (Top 1 y >= 1000)
+    if award_king_if_top1(db, user_id, min_points=1000):
+        awarded.append("rey")
+
+    return awarded

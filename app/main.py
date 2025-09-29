@@ -11,6 +11,7 @@ from app.routers import ranking as ranking_router
 from app.routers import ranking as ranking_router
 from fastapi.staticfiles import StaticFiles
 from app.routers import badges as badges_router
+from app.routers import points as points_router
 
 # 👇 importa TODOS los modelos que definen tablas
 from app.models import user  # ya lo tienes
@@ -48,6 +49,7 @@ app.include_router(user_router.router)
 app.include_router(ranking_router.router)
 app.include_router(badges_router.router)
 app.include_router(me_router.router)
+app.include_router(points_router.router)
 
 @app.get("/health")
 def health():
