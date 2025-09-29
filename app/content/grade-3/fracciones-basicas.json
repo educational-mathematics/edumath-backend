@@ -1,0 +1,21 @@
+{
+  "slug": "fracciones-basicas",
+  "title": "Fracciones básicas",
+  "grade": 3,
+  "concepts": [
+    { "id": "def", "text": "Una fracción a/b representa a partes iguales del entero. a es el numerador y b el denominador." },
+    { "id": "equiv", "text": "Fracciones equivalentes tienen el mismo valor aunque numerador y denominador sean distintos (ej: 1/2 = 2/4)." },
+    { "id": "comparar", "text": "Para comparar fracciones con mismo denominador, gana la de mayor numerador. Para mismo numerador, gana la de menor denominador." }
+  ],
+  "examples": [
+    { "given": "1/2 = 2/4", "explain": "Multiplicamos numerador y denominador por 2." },
+    { "given": "3/4 > 2/4", "explain": "Igual denominador: 3 es mayor que 2." }
+  ],
+  "constraints": {
+    "allowed_numbers": { "min": 1, "max": 12 },
+    "avoid": ["mixtas", "negativas", "decimales"]
+  },
+  "image_prompts": [
+    "Un círculo dividido en 4 partes iguales con 1 parte sombreada, estilo simple educativo."
+  ]
+}

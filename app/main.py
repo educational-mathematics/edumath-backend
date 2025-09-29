@@ -19,6 +19,8 @@ from app.models import badge      # <-- asegúrate que exista app/models/badge.p
 from app.models import user_badge # <-- y app/models/user_badge.py
 from app.routers import me as me_router
 
+from app.routers import topics as topics_router
+
 load_dotenv()
 Base.metadata.create_all(bind=engine)
 app = FastAPI(title="EduMath API")
@@ -50,6 +52,7 @@ app.include_router(ranking_router.router)
 app.include_router(badges_router.router)
 app.include_router(me_router.router)
 app.include_router(points_router.router)
+app.include_router(topics_router.router)
 
 @app.get("/health")
 def health():
