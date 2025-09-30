@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from pathlib import Path
 import json
-
+import requests
 from app.db import get_db
 from app.deps import get_current_user
 from app.models.user import User
@@ -24,6 +24,39 @@ CONTENT_DIR = Path(os.getenv("CONTENT_DIR", APP_DIR / "content"))
 STATIC_GEN = Path(os.getenv("STATIC_GEN_DIR", Path(__file__).resolve().parents[1]/"static"/"generated"))
 STATIC_GEN.mkdir(parents=True, exist_ok=True)
 
+STATIC_DIR = (APP_DIR / "static").resolve()
+TTS_DIR = (STATIC_DIR / "tts")
+TTS_DIR.mkdir(parents=True, exist_ok=True)
+
+def _make_tts(text: str, out_path: Path, voice: str = "Kore"):
+    """
+    Llama a tu endpoint interno /ai/tts para generar audio.
+    Si falla, no levanta error (solo no genera audio).
+    """
+    try:
+        r = requests.post(
+            "http://localhost:8000/ai/tts",
+            json={"text": text, "voice": voice},
+            timeout=30
+        )
+        if r.status_code == 200:
+            out_path.write_bytes(r.content)
+    except Exception as e:
+        print("[topics._make_tts] tts error:", e)
+
+def _tts_url_for(session_id: int, name: str) -> str:
+    # URL pública del archivo creado
+    return f"/static/tts/sess-{session_id}-{name}.wav"
+
+def _neutralize_audio_words(question: str) -> str:
+    if not question: return question
+    q = question.strip()
+    # si empieza con "Escucha..." o "Imagina que te dictan..."
+    lowers = q.lower()
+    if lowers.startswith("escucha ") or "escucha atentamente" in lowers or "te dictan" in lowers:
+        # cambia a lectura neutra
+        return q.replace("Escucha atentamente ", "Lee atentamente ").replace("Escucha ", "Lee ").replace("te dictan", "se presentan")
+    return q
 
 def _save_png_return_url(topic_slug: str, png_bytes: bytes) -> str:
     name = f"{topic_slug}-{uuid.uuid4().hex[:8]}.png"
@@ -51,7 +84,7 @@ def _open_session_core(db: Session, me: User, ut: UserTopic, t: Topic):
         raise HTTPException(404, f"Contexto no encontrado: {path}")
 
     ctx = json.loads(path.read_text(encoding="utf-8"))
-    context_text = "\n".join(
+    _ = "\n".join(
         [c["text"] for c in ctx.get("concepts", [])] +
         [e["explain"] for e in ctx.get("examples", [])]
     )
@@ -59,23 +92,24 @@ def _open_session_core(db: Session, me: User, ut: UserTopic, t: Topic):
     # última sesión del usuario en este topic
     last = db.execute(
         select(TopicSession)
-        .where(TopicSession.user_id==me.id, TopicSession.topic_id==t.id)
+        .where(TopicSession.user_id == me.id, TopicSession.topic_id == t.id)
         .order_by(TopicSession.id.desc())
     ).scalars().first()
 
+    explanation: str | None = None
     need_new = (not last) or (last.current_index >= 10)
+
     if need_new:
         prev = db.execute(
             select(TopicSession)
-            .where(TopicSession.user_id==me.id, TopicSession.topic_id==t.id)
+            .where(TopicSession.user_id == me.id, TopicSession.topic_id == t.id)
             .order_by(TopicSession.id.desc()).limit(5)
         ).scalars().all()
-        avoid_numbers = []
+        avoid_numbers: list[int] = []
         for s in prev:
             if s.items:
                 avoid_numbers += extract_used_fractions(s.items)
 
-        # ⬇️ IMPORTANTE: ahora pasamos el JSON completo "ctx"
         try:
             items = generate_exercises_variant(ctx, style=style, avoid_numbers=avoid_numbers)
             explanation = generate_explanation(ctx)
@@ -90,19 +124,66 @@ def _open_session_core(db: Session, me: User, ut: UserTopic, t: Topic):
             items=items,
             results=[{"correct": None, "attempts": 0} for _ in range(10)],
             current_index=0,
-            explanation=explanation  # <-- GUARDAMOS
+            explanation=explanation  # guardar explicación
         )
         db.add(last); db.commit(); db.refresh(last)
     else:
-        explanation = last.explanation
-        
+        explanation = last.explanation  # reusar la que guardamos
+
+    # ---------- Audio (siempre define la variable) ----------
+    explanation_audio_url: str | None = None
+
+    if style == "auditivo":
+        # 1) Explicación -> WAV reutilizable
+        exp_text = (last.explanation or explanation or "").strip()
+        if exp_text:
+            exp_path = (TTS_DIR / f"sess-{last.id}-explanation.wav")
+            if not exp_path.exists():
+                _make_tts(exp_text, exp_path, voice="Kore")
+            if exp_path.exists():
+                explanation_audio_url = _tts_url_for(last.id, "explanation")
+
+        # 2) Audio para algunas preguntas + neutralizar lenguaje si no hay audio
+        mcq_count = 0
+        changed = False
+        for idx, it in enumerate(last.items or []):
+            if it.get("type") == "multiple_choice":
+                needs_audio = False
+                if mcq_count < 2:
+                    needs_audio = True
+                elif len((it.get("question") or "")) > 140:
+                    needs_audio = True
+
+                if needs_audio:
+                    q_text = (it.get("question") or "").strip()
+                    if q_text:
+                        qpath = (TTS_DIR / f"sess-{last.id}-q{idx}.wav")
+                        if not qpath.exists():
+                            _make_tts(q_text, qpath, voice="Kore")
+                        if qpath.exists():
+                            it["ttsUrl"] = _tts_url_for(last.id, f"q{idx}")
+                            mcq_count += 1
+                            changed = True
+
+            # Si no hay audio, cambia “Escucha…” -> “Lee…”
+            if not it.get("ttsUrl"):
+                q0 = it.get("question") or ""
+                q1 = _neutralize_audio_words(q0)
+                if q1 != q0:
+                    it["question"] = q1
+                    changed = True
+
+        if changed:
+            db.add(last); db.commit(); db.refresh(last)
+
     progress_in_session = min((last.current_index or 0) * 10, 100)
 
     return {
         "sessionId": last.id,
         "title": t.title,
         "style": last.style_used,
-        "explanation": explanation,
+        "explanation": last.explanation or explanation,
+        "explanationAudioUrl": explanation_audio_url,
         "currentIndex": last.current_index,
         "items": last.items,
         "progressInSession": progress_in_session,

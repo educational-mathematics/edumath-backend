@@ -349,36 +349,35 @@ def generate_exercises_variant(ctx: Dict[str, Any], style: str, avoid_numbers: L
 
 def generate_explanation(ctx: Dict[str, Any]) -> str:
     """
-    Devuelve una explicación breve (3 a 5 oraciones), basada SOLO en ctx, 
-    para el grado objetivo, sin copiar literalmente el JSON.
+    Explicación corta (4 a 7 oraciones), clara y amigable.
+    No copia literal el JSON: parafrasea y complementa con ejemplos simples.
     """
-    try:
-        if AI_ENABLED:
-            import requests
+    if AI_ENABLED:
+        try:
+            import requests, json
             prompt = {
                 "instruction": (
-                    "Escribe una explicación corta (4 a 6 oraciones), clara y amigable para primaria. "
-                    "No copies texto literal del JSON. Parafrasea y complementa con ejemplos muy simples. "
-                    "No inventes contenido fuera del JSON. Tono motivacional, directo."
+                    "Escribe una explicación de 4 a 7 oraciones, clara y motivadora para primaria. "
+                    "No copies texto literal del JSON. Parafrasea y complementa con un ejemplo muy simple. "
+                    "Usa solo la información del contexto. Devuelve solo el texto."
                 ),
                 "context_json": ctx
             }
-            resp = requests.post(
+            r = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent",
                 params={"key": GEMINI_API_KEY},
                 json={"contents":[{"parts":[{"text": json.dumps(prompt, ensure_ascii=False)}]}]},
-                timeout=20
+                timeout=25
             )
-            if resp.status_code == 200:
-                data = resp.json()
-                text = data.get("candidates", [{}])[0].get("content",{}).get("parts",[{}])[0].get("text","").strip()
+            if r.status_code == 200:
+                data = r.json()
+                text = data.get("candidates",[{}])[0].get("content",{}).get("parts",[{}])[0].get("text","").strip()
                 if text:
-                    # recorta por si acaso
-                    return _short(text, 600)
-    except Exception as e:
-        print(f"[gemini.explanation] exception: {e}")
+                    return text 
+        except Exception as e:
+            print("[gemini.explanation] exception:", e)
 
-    # fallback: condensar conceptos/ejemplos sin copiar todo
+    # fallback
     return fallback_generate_explanation(ctx)
 
 # ---------- IA: imagen simple (para estilo visual) ----------
