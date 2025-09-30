@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, String, DateTime, JSON, Boolean
+from sqlalchemy import Column, Integer, ForeignKey, String, DateTime, JSON, Boolean, Text
 from sqlalchemy.sql import func
 from app.db import Base
 
@@ -19,3 +19,4 @@ class TopicSession(Base):
     score_pct     = Column(Integer, nullable=False, default=0)   # 0..100
     mistakes_cnt  = Column(Integer, nullable=False, default=0)   # respuestas incorrectas en toda la sesión
     attempts_cnt  = Column(Integer, nullable=False, default=0)   # envíos totales (correctos + incorrectos)
+    explanation = Column(Text, nullable=True)

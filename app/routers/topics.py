@@ -1,5 +1,5 @@
 # app/routers/topics.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from pathlib import Path
@@ -11,15 +11,26 @@ from app.models.user import User
 from app.models.topic import Topic
 from app.models.user_topic import UserTopic
 from app.models.topic_session import TopicSession
-from app.ai.gemini import generate_explanation, generate_exercises_variant
+from app.ai.gemini import generate_explanation, generate_exercises_variant, generate_one_image_png
 from app.ai.variation_utils import extract_used_fractions
 
-import os, logging
+import os, logging, uuid
 log = logging.getLogger("topics")
 
 APP_DIR = Path(__file__).resolve().parents[1]   # .../app
 REPO_ROOT = APP_DIR.parent                      # repo root (si app está en raíz)
 CONTENT_DIR = Path(os.getenv("CONTENT_DIR", APP_DIR / "content"))
+
+STATIC_GEN = Path(os.getenv("STATIC_GEN_DIR", Path(__file__).resolve().parents[1]/"static"/"generated"))
+STATIC_GEN.mkdir(parents=True, exist_ok=True)
+
+
+def _save_png_return_url(topic_slug: str, png_bytes: bytes) -> str:
+    name = f"{topic_slug}-{uuid.uuid4().hex[:8]}.png"
+    out = STATIC_GEN / name
+    out.write_bytes(png_bytes)
+    # asumiendo que sirves /static desde FastAPI
+    return f"/static/generated/{name}"
 
 def resolve_context_path(grade: int, slug: str) -> Path:
     p = CONTENT_DIR / f"grade-{grade}" / f"{slug}.json"
@@ -70,7 +81,6 @@ def _open_session_core(db: Session, me: User, ut: UserTopic, t: Topic):
             explanation = generate_explanation(ctx)
         except Exception as e:
             log.warning("open_session: IA falló, usando fallback. err=%s", e)
-            # fallback seguro (también usa ctx)
             from app.ai.gemini import fallback_generate_exercises, fallback_generate_explanation
             items = fallback_generate_exercises(ctx, style, avoid_numbers)
             explanation = fallback_generate_explanation(ctx)
@@ -79,11 +89,14 @@ def _open_session_core(db: Session, me: User, ut: UserTopic, t: Topic):
             user_id=me.id, topic_id=t.id, style_used=style,
             items=items,
             results=[{"correct": None, "attempts": 0} for _ in range(10)],
-            current_index=0
+            current_index=0,
+            explanation=explanation  # <-- GUARDAMOS
         )
         db.add(last); db.commit(); db.refresh(last)
     else:
-        explanation = None
+        explanation = last.explanation
+        
+    progress_in_session = min((last.current_index or 0) * 10, 100)
 
     return {
         "sessionId": last.id,
@@ -92,6 +105,7 @@ def _open_session_core(db: Session, me: User, ut: UserTopic, t: Topic):
         "explanation": explanation,
         "currentIndex": last.current_index,
         "items": last.items,
+        "progressInSession": progress_in_session,
     }
 
 router = APIRouter(prefix="/topics", tags=["topics"])
@@ -216,6 +230,19 @@ def answer(session_id: int, body: dict, db: Session = Depends(get_db), me: User 
         sess.current_index = min(sess.current_index + 1, 10)
         sess.score_raw = int(sess.score_raw or 0) + 1
         sess.score_pct = sess.score_raw * 10
+        
+        # ACTUALIZA PROGRESO DEL TEMA XD
+        ut = db.execute(
+            select(UserTopic).where(
+                UserTopic.user_id == me.id,
+                UserTopic.topic_id == sess.topic_id
+            )
+        ).scalar_one_or_none()
+        if ut:
+            pct = min(sess.current_index * 10, 100)
+            if int(ut.progress_pct or 0) < pct:
+                ut.progress_pct = pct
+                db.add(ut)
 
     db.add(sess); db.commit(); db.refresh(sess)
     return {"correct": correct, "feedback": feedback, "nextIndex": sess.current_index, "recommendedStyle": recommended}

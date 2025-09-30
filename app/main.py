@@ -13,13 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from app.routers import badges as badges_router
 from app.routers import points as points_router
 
-# 👇 importa TODOS los modelos que definen tablas
-from app.models import user  # ya lo tienes
-from app.models import badge      # <-- asegúrate que exista app/models/badge.py
-from app.models import user_badge # <-- y app/models/user_badge.py
+from app.models import badge  
+from app.models import user_badge 
 from app.routers import me as me_router
 
 from app.routers import topics as topics_router
+from app.routers import tts
 
 load_dotenv()
 Base.metadata.create_all(bind=engine)
@@ -53,6 +52,7 @@ app.include_router(badges_router.router)
 app.include_router(me_router.router)
 app.include_router(points_router.router)
 app.include_router(topics_router.router)
+app.include_router(tts.router)
 
 @app.get("/health")
 def health():
