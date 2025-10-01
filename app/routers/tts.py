@@ -1,66 +1,83 @@
+# app/routers/ai_tts.py (o donde tengas tu router /ai/tts)
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-import io, wave, base64, os, requests
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-TTS_MODEL = os.getenv("TTS_MODEL", "gemini-2.5-flash-tts").strip()
+from google.cloud import texttospeech
+import io, wave, os
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
-def _wav_from_pcm16_mono_24k(pcm: bytes) -> io.BytesIO:
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)   # 16-bit
-        wf.setframerate(24000)
-        wf.writeframes(pcm)
-    buf.seek(0)
-    return buf
+# Alias populares (Gemini) → voces reales de Google Cloud TTS
+VOICE_ALIASES = {
+    "kore": ("es-ES", "es-ES-Neural2-A"),
+    "puck": ("es-ES", "es-ES-Neural2-A"),
+    "aoede": ("en-US", "en-US-Standard-C"),
+}
+
+def _lang_from_name(voice_name: str, fallback: str = "es-PE") -> str:
+    # ej: "es-PE-Standard-A" -> "es-PE"
+    parts = voice_name.split("-")
+    if len(parts) >= 2:
+        return f"{parts[0]}-{parts[1]}"
+    return fallback
 
 @router.post("/tts")
 def tts(body: dict):
-    text  = (body.get("text") or "").strip()
-    voice = (body.get("voice") or "").strip()  # opcional, no garantizado por API
-
+    text = (body.get("text") or "").strip()
+    req_voice = (body.get("voice") or "").strip()
     if not text:
-        raise HTTPException(400, "text requerido")
-    if not GEMINI_API_KEY:
-        raise HTTPException(503, "Gemini TTS no disponible (sin API key)")
+        raise HTTPException(status_code=400, detail="text requerido")
 
-    # Hint de voz por prompt (workaround estable).
-    # Ej: "Usa una voz española peruana natural (femenina)."
-    voice_hint = f"\n\n[VOZ PREFERIDA]: {voice}" if voice else ""
+    # Voz por defecto (puedes cambiarla por env var TTS_VOICE si prefieres)
+    default_voice = os.getenv("TTS_VOICE", "es-PE-Standard-A")
 
-    payload = {
-        "contents": [{
-            "role": "user",
-            "parts": [{"text": text + voice_hint}]
-        }],
-        "generationConfig": {
-            # ← clave correcta hoy
-            "responseMimeType": "audio/wav"
-        }
-    }
+    # Normaliza voz solicitada
+    voice_key = req_voice.lower()
+    if voice_key in VOICE_ALIASES:
+        language_code, voice_name = VOICE_ALIASES[voice_key]
+    elif req_voice:
+        # El usuario pasó un nombre de voz “real” de GC TTS
+        voice_name = req_voice
+        language_code = _lang_from_name(voice_name, "es-PE")
+    else:
+        voice_name = default_voice
+        language_code = _lang_from_name(voice_name, "es-PE")
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{TTS_MODEL}:generateContent"
-    r = requests.post(url, params={"key": GEMINI_API_KEY}, json=payload, timeout=25)
-
-    if r.status_code != 200:
-        # Log útil en consola para depurar
-        print(f"[/ai/tts] non-200: {r.status_code} {r.text[:400]}")
-        raise HTTPException(502, f"TTS error {r.status_code}")
-
-    data = r.json()
-    # El audio viene base64 en inlineData.data
+    # Intenta sintetizar
     try:
-        b64 = (
-            data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]
-        )
-    except Exception:
-        raise HTTPException(502, "TTS vacío")
+        client = texttospeech.TextToSpeechClient()
+    except Exception as e:
+        # Problema de credenciales (ADC)
+        raise HTTPException(status_code=503, detail=f"TTS no disponible: {e}")
 
-    raw = base64.b64decode(b64)
-    # Si ya te devuelve WAV, puedes responderlo directo.
-    # Muchos modelos devuelven WAV ya listo; por compatibilidad lo envolvemos igual.
-    buf = _wav_from_pcm16_mono_24k(raw)
+    synthesis_input = texttospeech.SynthesisInput(text=text)
+    voice = texttospeech.VoiceSelectionParams(language_code="es-ES", name=voice_name)
+    audio_config = texttospeech.AudioConfig(
+        audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+        sample_rate_hertz=24000,
+    )
+
+    try:
+        res = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+    except Exception as e:
+        # Si el nombre de voz no existe, GC TTS devuelve 400 → probamos con la default
+        if voice_name != default_voice:
+            fallback_lang = _lang_from_name(default_voice, "es-PE")
+            fallback_voice = texttospeech.VoiceSelectionParams(language_code=fallback_lang, name=default_voice)
+            try:
+                res = client.synthesize_speech(input=synthesis_input, voice=fallback_voice, audio_config=audio_config)
+            except Exception as e2:
+                raise HTTPException(status_code=502, detail=f"TTS error (fallback): {e2}")
+        else:
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=502, detail=f"TTS error: {e}")
+
+    # Empaqueta PCM en WAV 24kHz mono s16le
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
+        wf.writeframes(res.audio_content)
+    buf.seek(0)
     return StreamingResponse(buf, media_type="audio/wav")
