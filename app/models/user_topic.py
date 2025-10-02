@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, String, DateTime
+from sqlalchemy import Column, Integer, ForeignKey, String, DateTime, Text, Boolean
 from sqlalchemy.sql import func
 from app.db import Base
 
@@ -18,3 +18,13 @@ class UserTopic(Base):
     last_score_pct   = Column(Integer, nullable=False, default=0)  # último %
     best_time_sec    = Column(Integer, nullable=True)              # mejor tiempo en segundos (menor es mejor)
     last_time_sec    = Column(Integer, nullable=False, default=0)  # último tiempo
+    
+    ai_seed_done          = Column(Boolean, default=False, nullable=False)
+    cached_explanation    = Column(Text, nullable=True)
+    cached_expl_audio_url = Column(String(255), nullable=True)
+    cached_visual_image_url = Column(String(255), nullable=True)
+    bank_variation_seed   = Column(Integer, nullable=True)
+    times_opened          = Column(Integer, default=0, nullable=False)
+    
+    bank_version = Column(Integer, nullable=False, default=1)
+    bank_variant_counter = Column(Integer, nullable=False, default=0)

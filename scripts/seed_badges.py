@@ -22,8 +22,8 @@ SEEDS = [
     ("sed-de-sabiduria",  "Sed de Sabiduría",         "Termina todos los temas 2 veces",                           "/static/badges/thirst_for_wisdom.png"),
     ("alas-cortadas",     "Alas Recortadas",          "Falla solo en la última pregunta de tu último tema restante", "/static/badges/clipped_wings.png"),
     ("principiante-elite","Principiante de Élite",    "Consigue 1000 puntos",                                      "/static/badges/elite_beginner.png"),
-    ("estrella-platinada","Estrella Platinada",       "consigue 10000 puntos",                                     "/static/badges/platinum_star.png"),
-    ("leyenda-viva",      "Leyenda Viva",             "consigue 1000000 puntos",                                   "/static/badges/living_legend.png"),
+    ("estrella-platinada","Estrella Platinada",       "Consigue 10000 puntos",                                     "/static/badges/platinum_star.png"),
+    ("leyenda-viva",      "Leyenda Viva",             "Consigue 1000000 de puntos",                                   "/static/badges/living_legend.png"),
 ]
 
 def upsert_badge(db, slug, title, description, image_url):

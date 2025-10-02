@@ -32,15 +32,10 @@ _session.mount(
 )
 
 def _post_genai(model: str, payload: dict, timeout: int = 60) -> dict:
-    """
-    Llama a /v1beta/models/{model}:generateContent
-    model: p.ej. 'gemini-2.5-flash' (NO URL)
-    """
+    """model es el id (p.ej. 'gemini-2.5-flash'), NO una URL."""
     if model.startswith("http"):
-        # por si alguien puso una URL completa; extrae el id
         parts = model.split("/models/")
         model = parts[-1].split(":")[0] if len(parts) > 1 else model
-
     url = f"{BASE_URL}/{model}:generateContent"
     resp = _session.post(url, params={"key": GEMINI_API_KEY}, json=payload, timeout=timeout)
     if resp.status_code != 200:
@@ -341,7 +336,7 @@ def fallback_generate_exercises(ctx: Dict[str, Any], style: str, avoid_numbers=N
     return _sanitize_items(base)
 
 # ------------------ IA: ejercicios ------------------
-def generate_exercises_variant(ctx: Dict[str, Any], style: str, avoid_numbers=None) -> List[Dict[str, Any]]:
+def generate_exercises_variant(ctx: dict, style: str, avoid_numbers=None) -> list[dict]:
     if not AI_ENABLED:
         return fallback_generate_exercises(ctx, style, avoid_numbers)
 
@@ -363,15 +358,16 @@ def generate_exercises_variant(ctx: Dict[str, Any], style: str, avoid_numbers=No
 
         data = _post_genai(
             MODEL_NAME,
-            {"contents": [{"parts": [{"text": json.dumps(prompt, ensure_ascii=False)}]}]},
+            {"contents": [{"parts": [{"text": json.dumps(prompt, ensure_ascii=False)}]}]} ,
             timeout=60,
         )
 
-        text = (data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "") or "").strip()
+        text = (data.get("candidates", [{}])[0]
+                    .get("content", {}).get("parts", [{}])[0]
+                    .get("text", "") or "").strip()
         if not text:
-            return fallback_generate_exercises(ctx, style, avoid_numbers)
+            raise RuntimeError("empty text from model")
 
-        # parseo robusto: ```json ... ```
         try:
             parsed = json.loads(text)
         except Exception:
@@ -379,15 +375,28 @@ def generate_exercises_variant(ctx: Dict[str, Any], style: str, avoid_numbers=No
             t2 = re.sub(r"^json", "", t2, flags=re.I).strip()
             parsed = json.loads(t2)
 
+        # ✅ Post-validación fuerte
+        if not isinstance(parsed, list) or len(parsed) == 0:
+            raise RuntimeError("parsed is not a non-empty list")
+
         items = _sanitize_items(parsed)
-        if len(items) < 10:
-            items += fallback_generate_exercises(ctx, style, avoid_numbers)[len(items):]
+        if not isinstance(items, list) or len(items) == 0:
+            raise RuntimeError("sanitized empty, forcing fallback")
+
+        # completa a 10 si hace falta
+        while len(items) < 10:
+            items.append({
+                "type": "multiple_choice",
+                "question": "Elige la opción correcta.",
+                "choices": ["Correcta", "Incorrecta 1", "Incorrecta 2", "Incorrecta 3"],
+                "correct_index": 0,
+                "explain": "Revisa el concepto clave."
+            })
         return items[:10]
 
     except Exception as e:
         print(f"[gemini] exception: {e} -> fallback")
         return fallback_generate_exercises(ctx, style, avoid_numbers)
-
 # ------------------ IA: explicación ------------------
 def generate_explanation(ctx: Dict[str, Any]) -> str:
     """
