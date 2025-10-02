@@ -1,5 +1,5 @@
 # app/routers/topics.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from pathlib import Path
@@ -779,11 +779,16 @@ def catalog(db: Session = Depends(get_db)):
     rows = db.execute(select(Topic)).scalars().all()
     out: dict[int, list] = {}
     for t in rows:
+        cover = (t.cover_url or "").strip()
+        if cover and not cover.startswith("/"):
+            cover = "/" + cover
         out.setdefault(int(t.grade), []).append({
-            "id": t.id, "slug": t.slug, "title": t.title, "coverUrl": t.cover_url
+            "id": t.id,
+            "slug": t.slug,
+            "title": t.title,
+            "coverUrl": cover,
         })
     return out
-
 
 @router.get("/my")
 def my_topics(db: Session = Depends(get_db), me: User = Depends(get_current_user)):

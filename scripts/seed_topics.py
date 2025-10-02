@@ -8,7 +8,7 @@ from app.db import SessionLocal
 from app.models.topic import Topic
 
 SEEDS = [
-    {"grade":3, "slug":"fracciones-basicas", "title":"Fracciones básicas", "cover_url":"/static/covers/fracciones.jpg"},
+    {"grade":3, "slug":"fracciones-basicas", "title":"Fracciones básicas", "cover_url":"/static/covers/fracciones.png"},
 ]
 
 def upsert(db, data):
