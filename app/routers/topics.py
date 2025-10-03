@@ -1,11 +1,9 @@
 # app/routers/topics.py
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from pathlib import Path
-import json, os, logging, uuid, requests
-
-import math, random
+import json, os, logging, re, random, copy, requests
 
 from app.db import get_db
 from app.deps import get_current_user
@@ -14,48 +12,145 @@ from app.models.topic import Topic
 from app.models.user_topic import UserTopic
 from app.models.topic_session import TopicSession
 
-from app.ai.gemini import generate_one_image_png
-from app.ai.variation_utils import extract_used_fractions
-
+# AI
 from app.ai.gemini import (
     generate_explanation,
     generate_exercises_variant,
     fallback_generate_exercises,
     fallback_generate_explanation,
+    generate_one_image_png,
 )
 from app.ai.variation_utils import extract_used_fractions
 
-# insignias / puntos
+# Badges / puntos
 from app.domain.badges.service import on_points_changed
 from app.models.badge import Badge
 from app.models.user_badge import UserBadge
 
-import re, random, copy
-
-from typing import Tuple
-from random import Random, randint
-
-FRACTION_RE = re.compile(r"\b(\d{1,2})\s*/\s*(\d{1,2})\b")
+# === NUEVOS HELPERS SEPARADOS ===
+from app.core.settings_static import (
+    STATIC_DIR, TTS_DIR, GEN_DIR, static_url_for
+)
+from app.core.utils_imgs import (
+    make_explanation_figure_png,
+    decorate_visuals_for_items,
+    ensure_fraction_png,
+    save_png_return_url,
+    pick_visual_expl_image_from_ctx
+)
+from app.core.utils_text import neutralize_audio_words
+from app.core.utils_tts import make_tts, tts_url_for
+from app.core.content import resolve_context_path
 
 log = logging.getLogger("topics")
 
-APP_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = APP_DIR.parent
-CONTENT_DIR = Path(os.getenv("CONTENT_DIR", APP_DIR / "content"))
+# (regex globales que sí usas dentro del archivo)
+FRACTION_RE = re.compile(r"\b(\d{1,2})\s*/\s*(\d{1,2})\b")
 
-STATIC_DIR = (APP_DIR / "static").resolve()
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
+_PLACEHOLDER_RE = re.compile(r"(?:^|\s)(distractor|incorrecta)\b", re.IGNORECASE)
+_FRAC_ONLY_RE   = re.compile(r"^\s*\d+\s*/\s*\d+\s*$")
 
-TTS_DIR = (STATIC_DIR / "tts")
-TTS_DIR.mkdir(parents=True, exist_ok=True)
+def _norm_media_url(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    u = raw.strip()
+    if u.startswith("http://") or u.startswith("https://"):
+        return u
+    if u.startswith("/media/"):
+        return u
+    if u.startswith("/covers/") or u.startswith("/avatars/") or u.startswith("/badges/"):
+        return f"/media{u}"
+    if u.startswith("covers/") or u.startswith("avatars/") or u.startswith("badges/"):
+        return f"/media/{u}"
+    # último recurso
+    return f"/media/{u.lstrip('/')}"
 
-STATIC_GEN = Path(os.getenv("STATIC_GEN_DIR", STATIC_DIR / "generated"))
-STATIC_GEN.mkdir(parents=True, exist_ok=True)
+def _parse_frac(s: str) -> tuple[int,int] | None:
+    m = re.match(r"^\s*(\d+)\s*/\s*(\d+)\s*$", str(s or ""))
+    if not m: return None
+    a, b = int(m.group(1)), int(m.group(2))
+    return (a, b) if b != 0 else None
 
+def _rand_frac_not_equiv(to_avoid: tuple[int,int] | None) -> str:
+    for _ in range(50):
+        a = random.randint(1, 9)
+        b = random.randint(2, 12)
+        if to_avoid is None: 
+            return f"{a}/{b}"
+        aa, bb = to_avoid
+        if a * bb != aa * b:                 # no equivalente al correcto
+            return f"{a}/{b}"
+    return "1/3"
 
+def _sanitize_mcq(item: dict) -> dict:
+    if (item or {}).get("type") != "multiple_choice":
+        return item
+
+    choices = [str(c).strip() for c in (item.get("choices") or [])]
+    ci = int(item.get("correct_index", -1))
+    correct_val = choices[ci] if 0 <= ci < len(choices) else (choices[0] if choices else None)
+
+    # ¿dominante “fracciones”?
+    frac_mode = any(_FRAC_ONLY_RE.match(c) for c in choices if c)
+    correct_frac = _parse_frac(correct_val) if frac_mode else None
+
+    fixed = []
+    for c in choices:
+        if not c or _PLACEHOLDER_RE.search(c):
+            fixed.append(_rand_frac_not_equiv(correct_frac) if frac_mode else str(random.randint(2, 20)))
+        else:
+            fixed.append(c)
+
+    # completa hasta 4
+    while len(fixed) < 4:
+        fixed.append(_rand_frac_not_equiv(correct_frac) if frac_mode else str(random.randint(2, 20)))
+
+    # dedup preservando orden
+    seen, dedup = set(), []
+    for c in fixed:
+        if c not in seen:
+            seen.add(c); dedup.append(c)
+    fixed = dedup[:4]
+
+    # recalcular correcto por valor (si falta, lo añadimos)
+    if correct_val not in fixed:
+        fixed.append(correct_val)
+        fixed = fixed[:4]
+
+    item = dict(item)
+    item["choices"] = fixed
+    return _shuffle_choices_set_correct(item, correct_val)
 # -------------------------------
 # Helpers
 # -------------------------------
+
+_frac_pat = re.compile(r"(\d+)\s*/\s*(\d+)")
+
+#def _attach_visuals_first_run(items: list[dict]) -> list[dict]:
+#    """
+#    Para preguntas del banco típicas, añade imageUrl derivada de la fracción
+#    si detectamos un patrón claro (p. ej. '3/8', '5/8', etc.).
+#    No toca el resto.
+#    """
+#    out = []
+#    for idx, it in enumerate(items):
+#        it = dict(it or {})
+#        if it.get("type") == "multiple_choice":
+#            # 1) Si ya viene imageUrl, respétalo
+#            if not it.get("imageUrl"):
+#                # 2) Heurística: busca una fracción en el enunciado
+#                import re
+#                m = re.search(r'(\d+)\s*/\s*(\d+)', (it.get("question") or ""))
+#                # Si no hay en el enunciado, prueba con la opción correcta
+#                if not m:
+#                    ch = it.get("choices") or []
+#                    if isinstance(it.get("correct_index"), int) and 0 <= it["correct_index"] < len(ch):
+#                        m = re.search(r'(\d+)\s*/\s*(\d+)', ch[it["correct_index"]])
+#                if m:
+#                    n, d = int(m.group(1)), int(m.group(2))
+#                    it["imageUrl"] = ensure_fraction_svg(n, d, name=f"qfrac-{n}-{d}-{idx}")
+#        out.append(it)
+#    return out
 
 def _format_frac(num: int, den: int) -> str:
     return f"{num}/{den}"
@@ -256,7 +351,6 @@ def _normalize_bank_item(it: dict) -> dict:
         # si hay problema, fuerza primera opción como correcta para no romper flujo
         correct_val = base_choices[0] if base_choices else "Correcta"
     return _shuffle_choices_set_correct(dict(it), correct_val)
-
 
 def _build_from_bank(ctx: dict, style: str) -> list[dict]:
     bank = ctx.get("exercise_bank") or []
@@ -471,51 +565,6 @@ def _build_from_bank_variations(ctx: dict, style: str, seed: int) -> list[dict]:
 
     return out[:10]
 
-def _make_tts(text: str, out_path: Path, voice: str = ""):
-    """
-    Llama a tu endpoint interno /ai/tts para generar audio WAV.
-    Si falla, no levanta error (solo no genera audio).
-    """
-    voice = (voice or os.getenv("TTS_VOICE", "es-ES-Standard-A")).strip()
-    try:
-        r = requests.post(
-            "http://localhost:8000/ai/tts",
-            json={"text": text, "voice": voice},
-            timeout=30,
-        )
-        if r.status_code == 200 and r.content:
-            out_path.write_bytes(r.content)
-        else:
-            # 204 o 5xx: sin audio
-            pass
-    except Exception as e:
-        log.warning("[topics._make_tts] TTS error: %s", e)
-
-
-def _tts_url_for(session_id: int, name: str) -> str:
-    return f"/static/tts/sess-{session_id}-{name}.wav"
-
-
-def _neutralize_audio_words(question: str) -> str:
-    if not question:
-        return question
-    q = question.strip()
-    lowers = q.lower()
-    if lowers.startswith("escucha ") or "escucha atentamente" in lowers or "te dictan" in lowers:
-        return (
-            q.replace("Escucha atentamente ", "Lee atentamente ")
-                .replace("Escucha ", "Lee ")
-                .replace("te dictan", "se presentan")
-        )
-    return q
-
-
-def _save_png_return_url(topic_slug: str, png_bytes: bytes) -> str:
-    name = f"{topic_slug}-{uuid.uuid4().hex[:8]}.png"
-    out = STATIC_GEN / name
-    out.write_bytes(png_bytes)
-    return f"/static/generated/{name}"
-
 def _resolve_or_generate_visual_image(db: Session, ut: UserTopic, ctx: dict, topic_slug: str) -> str | None:
     """
     Devuelve una URL (string) a la imagen de explicación para estilo visual.
@@ -543,7 +592,7 @@ def _resolve_or_generate_visual_image(db: Session, ut: UserTopic, ctx: dict, top
         if prompt:
             png = generate_one_image_png(prompt)
             if png:
-                url = _save_png_return_url(topic_slug, png)
+                url = save_png_return_url(topic_slug, png)
                 ut.cached_visual_image_url = url
                 db.add(ut); db.commit(); db.refresh(ut)
                 return url
@@ -553,16 +602,21 @@ def _resolve_or_generate_visual_image(db: Session, ut: UserTopic, ctx: dict, top
 
     return None
 
-def resolve_context_path(grade: int, slug: str) -> Path:
-    p = CONTENT_DIR / f"grade-{grade}" / f"{slug}.json"
-    if p.exists():
-        return p
-    fallback = REPO_ROOT / "content" / f"grade-{grade}" / f"{slug}.json"
-    if fallback.exists():
-        return fallback
-    return p  # para que el 404 muestre la ruta esperada
-
-
+def _pick_visual_expl_image(ctx: dict) -> str | None:
+    """
+    Intenta tomar una imagen ya existente declarada en el JSON.
+    Si viene un path empezando con /static lo devolvemos tal cual.
+    """
+    imgs = (ctx.get("visual_assets") or {}).get("images") or []
+    if imgs:
+        url = imgs[0]
+        # Permite rutas absolutas tipo /static/...
+        return url if url.startswith("/") else f"/static/{url.lstrip('/')}"
+    # Si no hay, intenta un cover del tema como explicación visual
+    cover = (ctx.get("cover") or "").strip()
+    if cover:
+        return cover if cover.startswith("/") else f"/static/{cover.lstrip('/')}"
+    return None
 # -------------------------------
 # Core: abrir/continuar sesión
 # -------------------------------
@@ -607,13 +661,30 @@ def _open_session_core(
             avoid_numbers += extract_used_fractions(s.items)
 
     explanation = None
-    visual_img_url = None
+    visual_img_url = ut.cached_visual_image_url or None
 
     try:
         if need_new:
             items = []
             explanation = None
-
+            
+            # imagen visual de explicación (solo 1ª vez)
+            try:
+                # 1) si el JSON trae una imagen, úsala
+                visual_img_url = pick_visual_expl_image_from_ctx(ctx)
+                if visual_img_url:
+                    ut.cached_visual_image_url = visual_img_url
+                else:
+                    # 2) Genera figura didáctica PNG basada en el primer a/b que detecte (o aleatoria)
+                    #    para que NO sea solo texto:
+                    base_text = (
+                        (ctx.get("explanation_variants") or [None])[0]
+                        or "Las fracciones representan partes de un todo."
+                    )
+                    ut.cached_visual_image_url = make_explanation_figure_png(t.id, me.id, base_text)
+            except Exception as e:
+                log.warning("visual explanation gen failed: %s", e)
+                
             if must_use_ai_first_run:
                 # === 1ª VEZ: O IA O NADA (no banco) ===
                 avoid_numbers = []
@@ -637,6 +708,7 @@ def _open_session_core(
                     try:
                         items = generate_exercises_variant(ctx, style=style, avoid_numbers=avoid_numbers)
                         explanation = generate_explanation(ctx)
+                        items = [ _sanitize_mcq(it) if (it or {}).get("type")=="multiple_choice" else it for it in (items or []) ]
                         ai_ok = bool(items) and bool(explanation)
                         if ai_ok: break
                     except Exception as e:
@@ -653,7 +725,7 @@ def _open_session_core(
                 try:
                     exp_path = (TTS_DIR / f"sess-expl-{me.id}-{t.id}.wav")
                     if not exp_path.exists():
-                        _make_tts(explanation, exp_path, voice=os.getenv("TTS_VOICE", "es-ES-Standard-A"))
+                        make_tts(explanation, exp_path, voice=os.getenv("TTS_VOICE", "es-ES-Standard-A"))
                     if exp_path.exists():
                         ut.cached_expl_audio_url = f"/static/tts/sess-expl-{me.id}-{t.id}.wav"
                 except Exception as e:
@@ -661,11 +733,18 @@ def _open_session_core(
 
                 # imagen visual opcional
                 try:
-                    if not ut.cached_visual_image_url:
-                        vprompts = (ctx.get("visual_assets") or {}).get("image_prompts") or []
-                        ut.cached_visual_image_url = ut.cached_visual_image_url or None
+                    visual_img_url = _pick_visual_expl_image(ctx)
+                    if visual_img_url:
+                        ut.cached_visual_image_url = visual_img_url
                 except Exception as e:
-                    log.warning("visual image gen failed: %s", e)
+                    log.warning("visual expl image pick failed: %s", e)
+
+                # == AÑADIR: imágenes por ejercicio (solo primera vez) ==
+                try:
+                    if style == "visual" and isinstance(items, list):
+                        decorate_visuals_for_items(items, t.id, me.id)  # -> PNG por ejercicio
+                except Exception as e:
+                    log.warning("decorate visuals failed: %s", e)
 
                 db.add(ut); db.commit(); db.refresh(ut)
 
@@ -731,9 +810,9 @@ def _open_session_core(
             else:
                 exp_path = (TTS_DIR / f"sess-{last.id}-explanation.wav")
                 if not exp_path.exists():
-                    _make_tts(last.explanation or explanation or "", exp_path, voice=os.getenv("TTS_VOICE", "es-ES-Standard-A"))
+                    make_tts(last.explanation or explanation or "", exp_path, voice=os.getenv("TTS_VOICE", "es-ES-Standard-A"))
                 if exp_path.exists():
-                    explanation_audio_url = _tts_url_for(last.id, "explanation")
+                    explanation_audio_url = tts_url_for(last.id, "explanation")
     except Exception as e:
         log.warning("tts explanation fail: %s", e)
 
@@ -743,7 +822,7 @@ def _open_session_core(
         for idx, it in enumerate(last.items or []):
             if it.get("type") == "multiple_choice":
                 q = it.get("question") or ""
-                q2 = _neutralize_audio_words(q)
+                q2 = neutralize_audio_words(q)
                 if q2 != q:
                     it["question"] = q2
                     changed = True
@@ -779,9 +858,7 @@ def catalog(db: Session = Depends(get_db)):
     rows = db.execute(select(Topic)).scalars().all()
     out: dict[int, list] = {}
     for t in rows:
-        cover = (t.cover_url or "").strip()
-        if cover and not cover.startswith("/"):
-            cover = "/" + cover
+        cover = _norm_media_url(t.cover_url)
         out.setdefault(int(t.grade), []).append({
             "id": t.id,
             "slug": t.slug,
@@ -804,13 +881,12 @@ def my_topics(db: Session = Depends(get_db), me: User = Depends(get_current_user
             "topicId": t.id,
             "slug": t.slug,
             "title": t.title,
-            "coverUrl": t.cover_url,
+            "coverUrl": _norm_media_url(t.cover_url),
             "progressPct": ut.progress_pct,
             "recommendedStyle": ut.recommended_style,
             "completedCount": ut.completed_count
         })
     return res
-
 
 @router.post("/add/{topic_id}")
 def add_topic(topic_id: int, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
@@ -1072,3 +1148,29 @@ def finish(session_id: int, body: dict | None = None, db: Session = Depends(get_
         "mistakes": mistakes,
         "precisionPct": precision_pct
     }
+    
+@router.post("/save/{session_id}")
+def save_progress(session_id: int, current_index: int | None = None, elapsed_sec: int | None = None,
+                    db: Session = Depends(get_db), me=Depends(get_current_user)):
+    s = db.get(TopicSession, session_id)
+    if not s or s.user_id != me.id:
+        raise HTTPException(404, "Sesión no encontrada")
+
+    # Actualiza índice si viene desde el front (si no, usa el de la sesión)
+    if isinstance(current_index, int):
+        s.current_index = max(0, min(10, current_index))
+
+    # Acumula tiempo si quieres
+    if isinstance(elapsed_sec, int):
+        ut = db.query(UserTopic).filter_by(user_id=me.id, topic_id=s.topic_id).first()
+        if ut:
+            ut.last_time_sec = (ut.last_time_sec or 0) + max(0, elapsed_sec)
+
+    # Refleja progreso en user_topics
+    ut = db.query(UserTopic).filter_by(user_id=me.id, topic_id=s.topic_id).first()
+    if ut:
+        # 0..10 preguntas -> 0..100%
+        ut.progress_pct = min((s.current_index or 0) * 10, 100)
+
+    db.commit()
+    return {"ok": True, "progressPct": ut.progress_pct if ut else 0}

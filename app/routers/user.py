@@ -6,8 +6,32 @@ from app.schemas.user import UserOut, UserUpdate, AliasIn
 from datetime import datetime
 import shutil
 import os
+from app.core.settings_static import MEDIA_DIR
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+def _norm_media_url(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    u = raw.strip()
+    # Deja URLs absolutas por si alguna vez guardaste externas
+    if u.startswith("http://") or u.startswith("https://"):
+        return u
+    # Normaliza prefijos conocidos a /media/…
+    if u.startswith("/media/"):
+        return u
+    for p in ("avatars/", "/avatars/", "covers/", "/covers/", "badges/", "/badges/"):
+        if u.startswith(p):
+            return "/media/" + u.lstrip("/")
+    # Corrige antiguas rutas a /static/ → /media/
+    if u.startswith("/static/avatars/"):
+        return "/media/avatars/" + u.split("/static/avatars/", 1)[1]
+    if u.startswith("/static/covers/"):
+        return "/media/covers/" + u.split("/static/covers/", 1)[1]
+    if u.startswith("/static/badges/"):
+        return "/media/badges/" + u.split("/static/badges/", 1)[1]
+    # Último recurso: fuerza /media
+    return "/media/" + u.lstrip("/")
 
 @router.get("/me", response_model=UserOut)
 def read_me(current_user: UserModel = Depends(get_current_user)):
@@ -58,28 +82,30 @@ def set_alias(payload: AliasIn,
 
 @router.post("/me/avatar", response_model=UserOut)
 def upload_avatar(
-    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user)
 ):
-    # Validar tipo
     if file.content_type not in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
         raise HTTPException(status_code=415, detail="Formato no soportado")
 
-    # Nombre seguro
-    ext = os.path.splitext(file.filename)[1].lower() or ".png"
-    fname = f"user_{current_user.id}_{int(datetime.utcnow().timestamp())}{ext}"
-    dest = os.path.join("static", "avatars", fname)
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".png"
+    if ext not in (".png", ".jpg", ".jpeg", ".webp"):
+        ext = ".png"
 
-    # Guardar
+    # archivo versionado por timestamp para romper caché
+    fname = f"user_{current_user.id}_{int(datetime.utcnow().timestamp())}{ext}"
+    dest = MEDIA_DIR / "avatars" / fname
+
     with open(dest, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Actualizar URL (ruta pública)
-    public_path = f"/static/avatars/{fname}"
-    base = str(request.base_url).rstrip("/")    # p.ej. http://localhost:8000
-    current_user.avatar_url = f"{base}{public_path}"
+    # Guarda en DB SIEMPRE como ruta relativa servible por /media
+    current_user.avatar_url = f"/media/avatars/{fname}"
+    db.add(current_user)
     db.commit()
     db.refresh(current_user)
+
+    # normaliza al responder
+    current_user.avatar_url = _norm_media_url(current_user.avatar_url)
     return current_user
