@@ -42,7 +42,7 @@ PUBLIC_MEDIA_DIR = (REPO_ROOT / "static").resolve()
 
 # Montajes
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")  # app/static → TTS, generados
-app.mount("/media",  StaticFiles(directory=str(MEDIA_DIR)),  name="media")   # static/ (raíz) → covers, avatars, badges
+app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media") # static/ (raíz) → covers, avatars, badges
 
 # ==== CORS ====
 origins = os.getenv("CORS_ORIGINS", "")

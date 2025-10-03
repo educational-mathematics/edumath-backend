@@ -80,14 +80,6 @@ def my_rank(
     if not row:
         # No debería pasar si tienes alias, pero por si acaso:
         raise HTTPException(status_code=404, detail="No se encontró tu posición en el ranking")
-    
-    # si soy rank 1, intento otorgar 'king' (idempotente)
-    #try:
-        #if int(row[0]) == 1:
-            #_ = award_king_if_top1(db, me.id, min_points=1000)
-    #except Exception:
-        # No detengas el ranking por fallas de insignia
-        #pass
 
     return RankingRow(
         rank=int(row[0]),

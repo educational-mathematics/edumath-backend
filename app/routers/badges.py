@@ -10,6 +10,22 @@ from app.deps import get_current_user  # ajusta a tu proyecto
 
 router = APIRouter(prefix="/badges", tags=["badges"])
 
+def _norm_media_url(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    u = raw.strip()
+    if u.startswith("http://") or u.startswith("https://"):
+        return u
+    if u.startswith("/media/"):
+        return u
+    if u.startswith("/static/"):
+        # convertir viejo a nuevo
+        return "/media/" + u.lstrip("/static/").lstrip("/")
+    if u.startswith(("badges/", "avatars/", "covers/")):
+        return "/media/" + u
+    # fallback
+    return "/media/" + u.lstrip("/")
+
 @router.get("", response_model=list[BadgeOut])
 def list_badges(db: Session = Depends(get_db), me: User = Depends(get_current_user)):
     total_users = db.execute(select(func.count(User.id))).scalar_one() or 1
@@ -72,5 +88,5 @@ def get_badge(badge_id: int, db: Session = Depends(get_db), me: User = Depends(g
     ).scalar_one() > 0
     return {
         "id": b.id, "slug": b.slug, "title": b.title, "description": b.description,
-        "imageUrl": b.image_url, "rarityPct": rarity, "owned": owned
+        "imageUrl": _norm_media_url(b.image_url), "rarityPct": rarity, "owned": owned
     }

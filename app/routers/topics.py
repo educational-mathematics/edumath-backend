@@ -1006,7 +1006,6 @@ def answer(session_id: int, body: dict, db: Session = Depends(get_db), me: User 
             return True
         return False
 
-    # 🔢 SIEMPRE cuenta intento
     sess.attempts_cnt = int(sess.attempts_cnt or 0) + 1
     sess.results[idx]["attempts"] = int(sess.results[idx].get("attempts") or 0) + 1
 
@@ -1014,17 +1013,15 @@ def answer(session_id: int, body: dict, db: Session = Depends(get_db), me: User 
     sess.results[idx]["correct"] = bool(correct)
 
     if not correct:
-        # ❌ fallo → suma errores y marca en el ítem (para reglas posteriores)
         item["__wrongAttempts"] = int(item.get("__wrongAttempts") or 0) + 1
         sess.mistakes_cnt = int(sess.mistakes_cnt or 0) + 1
         feedback = item.get("explain", "Revisa el concepto clave y vuelve a intentar.")
     else:
-        # ✅ acierto → avanza índice y suma aciertos
         sess.score_raw = int(sess.score_raw or 0) + 1
         sess.current_index = min(int(sess.current_index or 0) + 1, total_items)
         feedback = None
 
-    # 🎯 precisión por intentos
+    # precisión por intentos
     sess.score_pct = round(100.0 * (int(sess.score_raw or 0) / max(1, int(sess.attempts_cnt or 0))))
 
     finished = (int(sess.current_index or 0) >= total_items)
@@ -1036,20 +1033,43 @@ def answer(session_id: int, body: dict, db: Session = Depends(get_db), me: User 
     if total_answered >= 5 and (wrong / max(1, total_answered)) > 0.4:
         nxt = {"visual": "auditivo", "auditivo": "kinestesico", "kinestesico": "visual"}
         recommended = nxt.get(sess.style_used, "visual")
-        ut = db.execute(
+        ut_tmp = db.execute(
             select(UserTopic).where(UserTopic.user_id == me.id, UserTopic.topic_id == sess.topic_id)
         ).scalar_one_or_none()
-        if ut and ut.recommended_style != recommended:
-            ut.recommended_style = recommended
-            db.add(ut)
+        if ut_tmp and ut_tmp.recommended_style != recommended:
+            ut_tmp.recommended_style = recommended
+            db.add(ut_tmp)
 
-    db.add(sess); db.commit(); db.refresh(sess)
+    ut = db.execute(
+        select(UserTopic).where(UserTopic.user_id == me.id, UserTopic.topic_id == sess.topic_id)
+    ).scalar_one_or_none()
+    progress_pct = min(int(sess.current_index or 0) * 10, 100)
+    if ut:
+        ut.progress_pct = progress_pct
+
+        # actualiza tiempo total aproximado
+        try:
+            inc = int(body.get("elapsedSec") or 0)
+            if inc > 0:
+                ut.last_time_sec = int(ut.last_time_sec or 0) + inc
+        except:
+            pass
+
+        db.add(ut)
+
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    if ut:
+        db.refresh(ut)
+
     return {
         "correct": correct,
         "feedback": feedback,
         "nextIndex": int(sess.current_index or 0),
         "recommendedStyle": recommended,
-        "finished": finished
+        "finished": finished,
+        "progressPct": progress_pct,
     }
 
 
