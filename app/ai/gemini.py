@@ -375,7 +375,7 @@ def generate_exercises_variant(ctx: dict, style: str, avoid_numbers=None) -> lis
             t2 = re.sub(r"^json", "", t2, flags=re.I).strip()
             parsed = json.loads(t2)
 
-        # ✅ Post-validación fuerte
+        # Post-validación fuerte
         if not isinstance(parsed, list) or len(parsed) == 0:
             raise RuntimeError("parsed is not a non-empty list")
 
