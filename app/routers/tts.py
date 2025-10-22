@@ -13,7 +13,7 @@ VOICE_ALIASES = {
     "aoede": ("en-US", "en-US-Standard-C"),
 }
 
-def _lang_from_name(voice_name: str, fallback: str = "es-PE") -> str:
+def _lang_from_name(voice_name: str, fallback: str = "es-ES") -> str:
     # ej: "es-PE-Standard-A" -> "es-PE"
     parts = voice_name.split("-")
     if len(parts) >= 2:
@@ -28,7 +28,7 @@ def tts(body: dict):
         raise HTTPException(status_code=400, detail="text requerido")
 
     # Voz por defecto (puedes cambiarla por env var TTS_VOICE si prefieres)
-    default_voice = os.getenv("TTS_VOICE", "es-PE-Standard-A")
+    default_voice = os.getenv("TTS_VOICE", "es-ES-Neural2-A")
 
     # Normaliza voz solicitada
     voice_key = req_voice.lower()
@@ -37,10 +37,10 @@ def tts(body: dict):
     elif req_voice:
         # El usuario pasó un nombre de voz “real” de GC TTS
         voice_name = req_voice
-        language_code = _lang_from_name(voice_name, "es-PE")
+        language_code = _lang_from_name(voice_name, "es-ES")
     else:
         voice_name = default_voice
-        language_code = _lang_from_name(voice_name, "es-PE")
+        language_code = _lang_from_name(voice_name, "es-ES")
 
     # Intenta sintetizar
     try:
@@ -61,7 +61,7 @@ def tts(body: dict):
     except Exception as e:
         # Si el nombre de voz no existe, GC TTS devuelve 400 → probamos con la default
         if voice_name != default_voice:
-            fallback_lang = _lang_from_name(default_voice, "es-PE")
+            fallback_lang = _lang_from_name(default_voice, "es-ES")
             fallback_voice = texttospeech.VoiceSelectionParams(language_code=fallback_lang, name=default_voice)
             try:
                 res = client.synthesize_speech(input=synthesis_input, voice=fallback_voice, audio_config=audio_config)

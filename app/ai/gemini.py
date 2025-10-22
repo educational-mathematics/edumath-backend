@@ -133,6 +133,35 @@ def _to_mcq_from_bucket(item: Dict[str, Any]) -> Dict[str, Any]:
     q = f"Según “{title}”, ¿cuál pertenece a «{bucket}»?"
     return _mcq(q, correct, distract, "Identifica el criterio y elige un ejemplo que lo cumpla.")
 
+def _mcq_to_drag_kinesthetic(it: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convierte una MCQ en una actividad kinestésica de arrastrar:
+      - buckets: ["Correcta", "Incorrecta"]
+      - items: las 4 opciones
+      - solution: la correcta -> "Correcta", las demás -> "Incorrecta"
+    """
+    if (it or {}).get("type") != "multiple_choice":
+        return it
+    ch = [str(c).strip() for c in (it.get("choices") or []) if str(c).strip()]
+    if len(ch) < 2:
+        ch = ["Opción 1", "Opción 2", "Opción 3", "Opción 4"][:4]
+    idx = it.get("correct_index", 0)
+    try:
+        correct = ch[int(idx)] if 0 <= int(idx) < len(ch) else ch[0]
+    except Exception:
+        correct = ch[0]
+    buckets = ["Correcta", "Incorrecta"]
+    sol = {"Correcta": [correct], "Incorrecta": [x for x in ch if x != correct]}
+    title = (it.get("question") or "Arrastra la opción correcta a su caja.").strip()
+    return {
+        "type": "drag_to_bucket",
+        "title": title,
+        "items": ch,
+        "buckets": buckets,
+        "solution": sol,
+        "explain": (it.get("explain") or "Clasifica: la correcta va en 'Correcta'.").strip()
+    }
+
 # ------------------ Sanitización única ------------------
 def _fix_mcq(it: Dict[str, Any]) -> Dict[str, Any]:
     q = (it.get("question") or "").strip() or "Elige la opción correcta"
@@ -171,32 +200,80 @@ def _fix_pairs(it: Dict[str, Any]) -> Dict[str, Any]:
         "explain": (it.get("explain") or "Relaciona cada elemento con su par correspondiente.").strip()
     }
 
-def _sanitize_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _sanitize_items(items: List[Dict[str, Any]], style: str | None = None) -> List[Dict[str, Any]]:
+    style = (style or "").lower().strip()
     out: List[Dict[str, Any]] = []
+
     for it in (items or []):
         t = (it or {}).get("type")
+
+        if style == "kinestesico":
+            # 1) Mantén match_pairs/drag_to_bucket
+            if t == "match_pairs":
+                out.append(_fix_pairs(dict(it)))
+            elif t == "drag_to_bucket":
+                # Acepta tal cual (con limpieza mínima si quisieras)
+                out.append({
+                    "type":"drag_to_bucket",
+                    "title": (it.get("title") or "Clasifica").strip(),
+                    "items": list(it.get("items") or []),
+                    "buckets": list(it.get("buckets") or []),
+                    "solution": {k:list(v) for k,v in (it.get("solution") or {}).items()},
+                    "explain": (it.get("explain") or "Arrastra cada tarjeta a su caja.").strip()
+                })
+            elif t == "multiple_choice":
+                # 2) Convierte MCQ → Drag kinestésico
+                out.append(_mcq_to_drag_kinesthetic(_fix_mcq(dict(it))))
+            else:
+                # 3) Fallback kinestésico mínimo: convierte a drag
+                out.append(_mcq_to_drag_kinesthetic(_fix_mcq({
+                    "type":"multiple_choice",
+                    "question":"Elige la opción correcta.",
+                    "choices":["Correcta","Incorrecta 1","Incorrecta 2","Incorrecta 3"],
+                    "correct_index":0,
+                    "explain":"Clasifica: la correcta va en 'Correcta'."
+                })))
+            continue
+
+        # ---- Visual / Auditivo (comportamiento previo) ----
         if t == "multiple_choice":
             out.append(_fix_mcq(dict(it)))
         elif t == "match_pairs":
             out.append(_fix_pairs(dict(it)))
         elif t == "drag_to_bucket":
-            # 🚫 Convertimos buckets a MCQ para evitar “imposibles” en el front
-            out.append(_to_mcq_from_bucket(dict(it)))
+            # Antes se convertía a MCQ por "imposibles". Ahora lo mantenemos
+            # para permitir kinestesia en visual si el front lo soporta.
+            out.append({
+                "type":"drag_to_bucket",
+                "title": (it.get("title") or "Clasifica").strip(),
+                "items": list(it.get("items") or []),
+                "buckets": list(it.get("buckets") or []),
+                "solution": {k:list(v) for k,v in (it.get("solution") or {}).items()},
+                "explain": (it.get("explain") or "Arrastra cada tarjeta a su caja.").strip()
+            })
         else:
-            # fallback seguro
             out.append(_fix_mcq({
                 "question": str(it)[:140] or "Elige la opción correcta.",
                 "choices": ["Correcta","Incorrecta 1","Incorrecta 2","Incorrecta 3"],
                 "correct_index": 0,
                 "explain": "Selecciona la alternativa válida."
             }))
-    # siempre 10 items
+
+    # Normaliza a 10
     while len(out) < 10:
-        out.append(_fix_mcq({
-            "question":"Elige la opción correcta.",
-            "choices":["Correcta","Incorrecta 1","Incorrecta 2","Incorrecta 3"],
-            "correct_index":0
-        }))
+        if style == "kinestesico":
+            out.append(_mcq_to_drag_kinesthetic({
+                "type":"multiple_choice",
+                "question":"Elige la opción correcta.",
+                "choices":["Correcta","Incorrecta 1","Incorrecta 2","Incorrecta 3"],
+                "correct_index":0
+            }))
+        else:
+            out.append(_fix_mcq({
+                "question":"Elige la opción correcta.",
+                "choices":["Correcta","Incorrecta 1","Incorrecta 2","Incorrecta 3"],
+                "correct_index":0
+            }))
     return out[:10]
 
 # ------------------ Fallbacks ------------------
@@ -332,8 +409,66 @@ def _fallback_exercises_generic(ctx: Dict[str, Any], style: str) -> List[Dict[st
     return _sanitize_items(items)
 
 def fallback_generate_exercises(ctx: Dict[str, Any], style: str, avoid_numbers=None) -> List[Dict[str, Any]]:
+    if (style or "").lower() == "kinestesico":
+        return _fallback_exercises_kinesthetic(ctx)
+    
     base = _fallback_exercises_fractions(ctx, style, avoid_numbers) if _seems_fractions(ctx) else _fallback_exercises_generic(ctx, style)
-    return _sanitize_items(base)
+    return _sanitize_items(base, style)
+
+def _fallback_exercises_kinesthetic(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    # 3 actividades base + relleno hasta 10
+    items: List[Dict[str, Any]] = []
+
+    # 1) Equivalentes a 1/2
+    eq_items = ["1/2","2/4","3/6","3/5","4/8","5/10"]
+    eq_sol = {
+        "Equivalentes a 1/2": ["1/2","2/4","3/6","4/8","5/10"],
+        "No equivalentes": ["3/5"]
+    }
+    items.append({
+        "type":"drag_to_bucket",
+        "title":"Equivalentes a 1/2 vs No equivalentes",
+        "items": eq_items,
+        "buckets": ["Equivalentes a 1/2","No equivalentes"],
+        "solution": eq_sol,
+        "explain":"Multiplica/simplifica para decidir equivalencia con 1/2."
+    })
+
+    # 2) Propias vs Impropias
+    pi_items = ["3/4","5/3","7/8","9/7","2/3","4/4"]
+    pi_sol = {
+        "Propias": ["3/4","7/8","2/3"],
+        "Impropias": ["5/3","9/7","4/4"]
+    }
+    items.append({
+        "type":"drag_to_bucket",
+        "title":"Clasifica como Propias o Impropias",
+        "items": pi_items,
+        "buckets": ["Propias","Impropias"],
+        "solution": pi_sol,
+        "explain":"Propias: numerador < denominador. Impropias: numerador ≥ denominador."
+    })
+
+    # 3) Empareja conceptos ↔ ejemplo
+    pairs = []
+    for c in (ctx.get("concepts") or [])[:3]:
+        key = (c.get("id") or "Concepto").capitalize()
+        val = (c.get("text") or "").strip()
+        if key and val:
+            pairs.append([key, val])
+    for e in (ctx.get("examples") or [])[:2]:
+        k = (e.get("given") or "Ejemplo").strip()
+        v = (e.get("explain") or "").strip()
+        if k and v:
+            pairs.append([k, v])
+    items.append({
+        "type":"match_pairs",
+        "title":"Empareja concepto con ejemplo",
+        "pairs": pairs[:6] if pairs else [["Fracción","Parte de un todo"],["Numerador","Partes tomadas"]],
+        "explain":"Relaciona cada concepto con su ejemplo."
+    })
+
+    return _sanitize_items(items, style="kinestesico")
 
 # ------------------ IA: ejercicios ------------------
 def generate_exercises_variant(ctx: dict, style: str, avoid_numbers=None) -> list[dict]:
@@ -350,7 +485,7 @@ def generate_exercises_variant(ctx: dict, style: str, avoid_numbers=None) -> lis
                 "Usa SOLO el contenido del JSON de contexto.",
                 "Devuelve JSON válido: un array con 10 objetos.",
                 "Tipos permitidos: 'multiple_choice'|'match_pairs'|'drag_to_bucket'.",
-                "multiple_choice: question, choices(4 únicas), correct_index, explain.",
+                "Para estilo 'kinestesico', NO devuelvas 'multiple_choice', solo 'match_pairs' y 'drag_to_bucket'.",
                 "match_pairs: title, pairs [[L,R],...].",
                 "drag_to_bucket: title, items[], buckets[], solution{bucket:[items]} (partición válida)."
             ]
@@ -375,22 +510,24 @@ def generate_exercises_variant(ctx: dict, style: str, avoid_numbers=None) -> lis
             t2 = re.sub(r"^json", "", t2, flags=re.I).strip()
             parsed = json.loads(t2)
 
-        # Post-validación fuerte
         if not isinstance(parsed, list) or len(parsed) == 0:
             raise RuntimeError("parsed is not a non-empty list")
 
-        items = _sanitize_items(parsed)
+        items = _sanitize_items(parsed, style)
         if not isinstance(items, list) or len(items) == 0:
             raise RuntimeError("sanitized empty, forcing fallback")
 
-        # completa a 10 si hace falta
         while len(items) < 10:
-            items.append({
-                "type": "multiple_choice",
-                "question": "Elige la opción correcta.",
-                "choices": ["Correcta", "Incorrecta 1", "Incorrecta 2", "Incorrecta 3"],
-                "correct_index": 0,
-                "explain": "Revisa el concepto clave."
+            items.append(_mcq_to_drag_kinesthetic({
+                "type":"multiple_choice",
+                "question":"Elige la opción correcta.",
+                "choices":["Correcta","Incorrecta 1","Incorrecta 2","Incorrecta 3"],
+                "correct_index":0
+            }) if (style or "").lower()=="kinestesico" else {
+                "type":"multiple_choice",
+                "question":"Elige la opción correcta.",
+                "choices":["Correcta","Incorrecta 1","Incorrecta 2","Incorrecta 3"],
+                "correct_index":0
             })
         return items[:10]
 

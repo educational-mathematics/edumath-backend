@@ -52,8 +52,10 @@ from app.core.engines.grades.grade3.fracciones_basicas import (
     _apply_variations_to_item,
     _normalize_bank_item,
     _build_from_bank_variations,
-    FRACTION_RE,  # por si en el futuro se usa en este archivo
+    FRACTION_RE,
 )
+
+from app.core.engines.registry import get_engine_for_slug
 
 log = logging.getLogger("topics")
 
@@ -77,14 +79,6 @@ def _norm_media_url(raw: str | None) -> str | None:
     return f"/media/{u.lstrip('/')}"
 
 def _resolve_or_generate_visual_image(db: Session, ut: UserTopic, ctx: dict, topic_slug: str) -> str | None:
-    """
-    Devuelve una URL (string) a la imagen de explicación para estilo visual.
-    Reutiliza cache en user_topics.cached_visual_image_url si existe.
-    Si no hay cache:
-      - usa primero ctx['visual_assets']['image_urls'][0] si está
-      - sino intenta IA (generate_one_image_png) con el primer prompt disponible
-      - si la IA produce bytes, se guardan en /static/generated y se cachea la URL en ut
-    """
     try:
         if ut.cached_visual_image_url:
             return ut.cached_visual_image_url
@@ -253,6 +247,13 @@ def _open_session_core(
 
             else:
                 # === REPETICIONES: variaciones del banco ===
+                if style == "kinestesico":
+                    try:
+                        items = generate_exercises_variant(ctx, style=style, avoid_numbers=avoid_numbers)
+                    except Exception:
+                        items = fallback_generate_exercises(ctx, style=style, avoid_numbers=avoid_numbers)
+                    explanation = ut.cached_explanation or (ctx.get("explanation_variants") or [None])[0]
+                    
                 ut.bank_variant_counter = int(ut.bank_variant_counter or 0) + 1
                 bank_version = int(ut.bank_version or 1)
                 new_seed = bank_version * 1_000_003 + ut.bank_variant_counter
@@ -287,6 +288,17 @@ def _open_session_core(
                 current_index=0,
                 explanation=explanation
             )
+            
+            try:
+                engine = get_engine_for_slug(t.grade, t.slug)
+                repaired = engine.validate_repair(last.items or [], ctx)
+                # si hubo cambios, persistimos para que la próxima apertura ya venga sano
+                if repaired != (last.items or []):
+                    last.items = repaired
+                    db.add(last); db.commit(); db.refresh(last)
+            except Exception as e:
+                log.warning("engine.validate_repair failed: %s", e)
+            
             db.add(last); db.commit(); db.refresh(last)
 
             # registra apertura SOLO cuando se creó la sesión
@@ -294,6 +306,15 @@ def _open_session_core(
             db.add(ut); db.commit(); db.refresh(ut)
         else:
             explanation = last.explanation or (ut.cached_explanation or None)
+            
+        try:
+            engine = get_engine_for_slug(t.grade, t.slug)
+            fixed = engine.validate_repair(last.items or [], ctx)
+            if fixed != (last.items or []):
+                last.items = fixed
+                db.add(last); db.commit(); db.refresh(last)
+        except Exception as e:
+            log.warning("validate_repair (reuse) failed: %s", e)
 
     except Exception as e:
         log.error("open_session_core failed: %s", e)

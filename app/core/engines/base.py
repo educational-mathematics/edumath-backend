@@ -28,3 +28,7 @@ class TopicEngine(Protocol):
     def check_answer(self, item: Dict[str, Any], answer: Any) -> bool:
         """Valida respuesta de un ítem individual."""
         ...
+        
+    def validate_repair(self, items: List[Dict[str, Any]], context_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Hook para sanear ítems ya generados/persistidos. Por defecto, no hace nada."""
+        return items
