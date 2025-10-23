@@ -233,7 +233,7 @@ def _open_session_core(
                 items = repaired[:10] if repaired else items
                 
             try:
-                if int(ut.times_opened or 0) == 0:
+                if style == "visual" and int(ut.times_opened or 0) == 0:
                     decorate_visuals_for_items(items, t.id, me.id)
             except Exception as e:
                 log.warning("decorate visuals failed: %s", e)
