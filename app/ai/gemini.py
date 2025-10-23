@@ -16,6 +16,14 @@ BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 FRACTION_RE = re.compile(r"\b(\d{1,2})\s*/\s*(\d{1,2})\b", re.IGNORECASE)
 _OPCION_RE = re.compile(r"^\s*Opción\s+\d+\s*$", re.IGNORECASE)
 
+print(f"[gemini] MODEL={MODEL_NAME!r} AI_ENABLED={AI_ENABLED} KEY_SET={'YES' if GEMINI_API_KEY else 'NO'}")
+
+def ensure_ai_ready():
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY no está definido (AI_DISABLED).")
+    if not MODEL_NAME:
+        raise RuntimeError("MODEL_NAME no está definido (AI_DISABLED).")
+
 # Session con reintentos (para 429/5xx)
 _session = requests.Session()
 _session.mount(
@@ -472,8 +480,8 @@ def _fallback_exercises_kinesthetic(ctx: Dict[str, Any]) -> List[Dict[str, Any]]
 
 # ------------------ IA: ejercicios ------------------
 def generate_exercises_variant(ctx: dict, style: str, avoid_numbers=None) -> list[dict]:
-    if not AI_ENABLED:
-        return fallback_generate_exercises(ctx, style, avoid_numbers)
+    ensure_ai_ready()
+    print(f"[gemini] generate_exercises_variant → usando IA con modelo={MODEL_NAME}, style={style}")
 
     try:
         prompt = {
@@ -501,7 +509,7 @@ def generate_exercises_variant(ctx: dict, style: str, avoid_numbers=None) -> lis
                     .get("content", {}).get("parts", [{}])[0]
                     .get("text", "") or "").strip()
         if not text:
-            raise RuntimeError("empty text from model")
+            raise RuntimeError("Gemini devolvió texto vacío")
 
         try:
             parsed = json.loads(text)
@@ -511,29 +519,30 @@ def generate_exercises_variant(ctx: dict, style: str, avoid_numbers=None) -> lis
             parsed = json.loads(t2)
 
         if not isinstance(parsed, list) or len(parsed) == 0:
-            raise RuntimeError("parsed is not a non-empty list")
+            raise RuntimeError("Gemini devolvió un JSON que no es lista no vacía")
 
         items = _sanitize_items(parsed, style)
         if not isinstance(items, list) or len(items) == 0:
-            raise RuntimeError("sanitized empty, forcing fallback")
+            raise RuntimeError("Sanitización dejó la lista vacía")
 
-        while len(items) < 10:
-            items.append(_mcq_to_drag_kinesthetic({
-                "type":"multiple_choice",
-                "question":"Elige la opción correcta.",
-                "choices":["Correcta","Incorrecta 1","Incorrecta 2","Incorrecta 3"],
-                "correct_index":0
-            }) if (style or "").lower()=="kinestesico" else {
-                "type":"multiple_choice",
-                "question":"Elige la opción correcta.",
-                "choices":["Correcta","Incorrecta 1","Incorrecta 2","Incorrecta 3"],
-                "correct_index":0
-            })
+        # Normaliza a 10 sin usar fallback local silencioso
+        if len(items) > 10:
+            items = items[:10]
+        elif len(items) < 10:
+            # rellena con clones ligeros de los ya generados (pero no con fallback de JSON)
+            base = items[:]
+            i = 0
+            while len(items) < 10 and base:
+                items.append(base[i % len(base)])
+                i += 1
+
+        print(f"[gemini] IA generó {len(items)} items")
         return items[:10]
 
     except Exception as e:
-        print(f"[gemini] exception: {e} -> fallback")
-        return fallback_generate_exercises(ctx, style, avoid_numbers)
+        # Muy importante: NO hacer fallback aquí. Dejar que el caller vea el error.
+        print(f"[gemini] ERROR IA: {e}")
+        raise
 # ------------------ IA: explicación ------------------
 def generate_explanation(ctx: Dict[str, Any]) -> str:
     """

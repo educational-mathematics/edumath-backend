@@ -7,6 +7,16 @@ from app.core.settings_static import GEN_DIR, static_url_for
 
 # --- Utilitario: primer "a/b" en un texto ---
 _FRAC_RE = re.compile(r"(\d+)\s*/\s*(\d+)")
+# Patrón natural: "...dividido en D partes... N parte(s) sombread..."
+_NL_DEN_NUM_RE = re.compile(
+    r"dividid[oa]\s+en\s+(\d+)\s+partes?.*?(\d+)\s+parte[s]?\s+(?:sombread|coloread)",
+    re.IGNORECASE
+)
+# Variante "N de D sombreadas/coloreadas"
+_NL_NUM_DEN_RE = re.compile(
+    r"(\d+)\s+de\s+(\d+)\s+(?:partes?|secciones?|porciones?).*?(?:sombread|coloread)",
+    re.IGNORECASE
+)
 
 def find_first_fraction(text: str) -> tuple[int,int] | None:
     if not text:
@@ -111,19 +121,15 @@ def make_explanation_figure_png(topic_id: int, user_id: int, base_text: str | No
     return static_url_for(out)
 
 def decorate_visuals_for_items(items: list, topic_id: int, user_id: int) -> None:
-    """
-    Para cada MCQ, si detecta fracciones, genera un PNG (no SVG) y setea it['imageUrl'].
-    """
     for i, it in enumerate(items or []):
         if (it or {}).get("type") != "multiple_choice":
             continue
 
-        q = (it.get("question") or "")
-        # si ya tiene imageUrl, respeta
-        if it.get("imageUrl"):
+        if it.get("imageUrl"):   # respeta si ya viene
             continue
 
-        # busca fracción en enunciado o en la opción correcta
+        # 1) intenta "a/b" en pregunta o en la correcta
+        q = (it.get("question") or "")
         m = _FRAC_RE.search(q)
         if not m:
             ch = it.get("choices") or []
@@ -131,9 +137,25 @@ def decorate_visuals_for_items(items: list, topic_id: int, user_id: int) -> None
             if isinstance(ci, int) and 0 <= ci < len(ch):
                 m = _FRAC_RE.search(str(ch[ci]) or "")
 
+        # 2) si no hay "a/b", intenta lenguaje natural
+        n = d = None
         if m:
             n, d = int(m.group(1)), int(m.group(2))
-            it["imageUrl"] = ensure_fraction_png(n, d, name=f"qfrac-{user_id}-{topic_id}-{i}")
+        else:
+            txt = q.lower()
+            m2 = _NL_DEN_NUM_RE.search(txt) or _NL_NUM_DEN_RE.search(txt)
+            if m2:
+                # NL_DEN_NUM_RE = (D, N) ; NL_NUM_DEN_RE = (N, D)
+                if m2.re is _NL_DEN_NUM_RE:
+                    d, n = int(m2.group(1)), int(m2.group(2))
+                else:
+                    n, d = int(m2.group(1)), int(m2.group(2))
+
+        if n is not None and d is not None and d > 0:
+            it["imageUrl"] = ensure_fraction_png(
+                max(0, min(n, d)), d,
+                name=f"qfrac-{user_id}-{topic_id}-{i}"
+            )
 
 def pick_visual_expl_image_from_ctx(ctx: dict) -> str | None:
     """

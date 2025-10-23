@@ -32,3 +32,10 @@ class TopicEngine(Protocol):
     def validate_repair(self, items: List[Dict[str, Any]], context_json: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Hook para sanear ítems ya generados/persistidos. Por defecto, no hace nada."""
         return items
+    
+    def make_visual_explanation(self, db, ut, ctx, topic, rng) -> str | None:
+        """
+        (Opcional) Devuelve URL de una imagen de explicación visual para este tema.
+        Por defecto no hace nada (None). Cada engine puede sobreescribirlo.
+        """
+        return None

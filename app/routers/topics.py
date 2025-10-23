@@ -48,10 +48,9 @@ from app.core.engines.grades.grade3.fracciones_basicas import (
     _rand_frac_not_equiv,
     _sanitize_mcq,
     _shuffle_choices_set_correct,
-    _variant_fraction_str,
-    _apply_variations_to_item,
-    _normalize_bank_item,
-    _build_from_bank_variations,
+    _synth_question_from_choices,
+    _argmax_frac_index,
+    _argmin_frac_index,
     FRACTION_RE,
 )
 
@@ -59,8 +58,17 @@ from app.core.engines.registry import get_engine_for_slug
 
 log = logging.getLogger("topics")
 
+def _choose_reuse_mode(policy: dict | None, run_idx: int) -> str:
+    """Devuelve 'ai_or_cached' | 'bank' | 'variations_from_bank'."""
+    p = policy or {}
+    if run_idx <= 1:
+        return (p.get("first_run") or "ai_or_cached").lower()
+    if run_idx == 2:
+        return (p.get("second_run") or "bank").lower()
+    return (p.get("later_runs") or "variations_from_bank").lower()
+
 # -------------------------------------------------------------------
-# Helpers de media que sí permanecen aquí (no específicos de fracciones)
+# Helpers de media que sí permanecen aquí 
 # -------------------------------------------------------------------
 
 def _norm_media_url(raw: str | None) -> str | None:
@@ -83,28 +91,17 @@ def _resolve_or_generate_visual_image(db: Session, ut: UserTopic, ctx: dict, top
         if ut.cached_visual_image_url:
             return ut.cached_visual_image_url
 
-        # 1) si el JSON ya trae una imagen estática, úsala
-        va = (ctx.get("visual_assets") or {})
-        preset_urls = va.get("image_urls") or []
-        if preset_urls:
-            ut.cached_visual_image_url = preset_urls[0]
-            db.add(ut); db.commit(); db.refresh(ut)
-            return ut.cached_visual_image_url
-
-        # 2) intenta IA con prompts del JSON
-        prompts = va.get("image_prompts") or []
-        prompt = prompts[0] if prompts else None
-        if prompt:
+        prompts = (ctx.get("visual_assets") or {}).get("image_prompts") or []
+        if prompts:
+            prompt = prompts[0]  # ← vuelve a tu prompt del JSON
             png = generate_one_image_png(prompt)
             if png:
                 url = save_png_return_url(topic_slug, png)
                 ut.cached_visual_image_url = url
                 db.add(ut); db.commit(); db.refresh(ut)
                 return url
-
     except Exception as e:
         log.warning("visual image resolve/gen failed: %s", e)
-
     return None
 
 def _pick_visual_expl_image(ctx: dict) -> str | None:
@@ -140,146 +137,106 @@ def _open_session_core(
     # Contexto
     path = resolve_context_path(t.grade, t.slug)
     if not path.exists():
-        log.warning("open_session: contexto no encontrado. grade=%s slug=%s path=%s", t.grade, t.slug, str(path))
         raise HTTPException(404, f"Contexto no encontrado: {path}")
     ctx = json.loads(path.read_text(encoding="utf-8"))
 
-    # Última sesión
+    # Crear nueva sesión si no hay o si terminó; force_new respeta reset manual
     last = db.execute(
         select(TopicSession)
         .where(TopicSession.user_id == me.id, TopicSession.topic_id == t.id)
         .order_by(TopicSession.id.desc())
     ).scalars().first()
-    need_new = force_new or (not last) or (last.current_index >= 10)
 
-    times_opened = int(ut.times_opened or 0)
-    must_use_ai_first_run = (not bool(ut.ai_seed_done)) and (times_opened == 0)
+    need_new = (
+        force_new
+        or (not last)
+        or (last.current_index >= 10)
+        or int(ut.times_opened or 0) == 0
+    )
 
-    # Evitar repetir fracciones
-    prev = db.execute(
-        select(TopicSession)
-        .where(TopicSession.user_id == me.id, TopicSession.topic_id == t.id)
-        .order_by(TopicSession.id.desc()).limit(5)
-    ).scalars().all()
+    # Evitar repetir fracciones recientes (opcional; mantiene tu UX)
     avoid_numbers: list[int] = []
-    for s in prev:
-        if s.items:
-            avoid_numbers += extract_used_fractions(s.items)
+    try:
+        prev = db.execute(
+            select(TopicSession)
+            .where(TopicSession.user_id == me.id, TopicSession.topic_id == t.id)
+            .order_by(TopicSession.id.desc()).limit(5)
+        ).scalars().all()
+        for s in prev:
+            if s.items:
+                avoid_numbers += extract_used_fractions(s.items)
+    except Exception:
+        avoid_numbers = []
 
     explanation = None
 
     try:
         if need_new:
-            items = []
-            explanation = None
+            engine = get_engine_for_slug(t.grade, t.slug)
 
-            # === SOLO VISUAL: resolver/generar imagen de explicación (1ª vez) ===
-            if style == "visual":
-                try:
-                    visual_img_url = pick_visual_expl_image_from_ctx(ctx)
-                    if visual_img_url:
-                        ut.cached_visual_image_url = visual_img_url
-                    else:
-                        base_text = (
-                            (ctx.get("explanation_variants") or [None])[0]
-                            or "Las fracciones representan partes de un todo."
-                        )
-                        ut.cached_visual_image_url = make_explanation_figure_png(t.id, me.id, base_text)
-                except Exception as e:
-                    log.warning("visual explanation gen failed: %s", e)
+            payload = engine.build_session(
+                context_json=ctx,
+                style=style,
+                avoid_numbers=avoid_numbers,
+                seed=None,
+                reuse_mode=None,   # ignorado
+            )
 
-            if must_use_ai_first_run:
-                # === 1ª VEZ: IA (o error 503) ===
-                avoid_numbers = []
-                try:
-                    prev = db.execute(
-                        select(TopicSession)
-                        .where(TopicSession.user_id == me.id, TopicSession.topic_id == t.id)
-                        .order_by(TopicSession.id.desc()).limit(5)
-                    ).scalars().all()
-                    for s in prev:
-                        if s.items:
-                            avoid_numbers += extract_used_fractions(s.items)
-                except Exception as e:
-                    log.warning("avoid_numbers calc failed: %s", e)
-                    avoid_numbers = []
+            items = payload.get("items") or []
+            # Pase de consistencia final (índice correcto por texto)
+            try:
+                for it in items:
+                    if isinstance(it, dict) and it.get("type") == "multiple_choice":
+                        choices = [str(c).strip() for c in (it.get("choices") or []) if str(c).strip()]
 
-                ai_ok = False
-                last_err = None
-                for _ in range(3):
-                    try:
-                        items = generate_exercises_variant(ctx, style=style, avoid_numbers=avoid_numbers)
-                        explanation = generate_explanation(ctx)
-                        items = [_sanitize_mcq(it) if (it or {}).get("type") == "multiple_choice" else it for it in (items or [])]
-                        ai_ok = bool(items) and bool(explanation)
-                        if ai_ok:
-                            break
-                    except Exception as e:
-                        last_err = e
+                        qtxt = (it.get("question") or "").strip()
+                        synthesized = False
+                        if not qtxt or qtxt.lower().startswith("elige la opción correcta"):
+                            it["question"] = _synth_question_from_choices(choices)
+                            synthesized = True
 
-                if not ai_ok:
-                    log.warning("AI first run failed (no fallback). err=%s", last_err)
-                    raise HTTPException(503, "IA temporalmente no disponible. Inténtalo de nuevo.")
+                        qlow = (it.get("question") or "").lower()
 
-                # Cachea explicación
-                ut.ai_seed_done = True
-                ut.cached_explanation = explanation
+                        # Si sintetizamos (o si la IA trajo algo genérico), ajusta la correcta
+                        if synthesized:
+                            if "más grande" in qlow or "mayor" in qlow:
+                                idx = _argmax_frac_index(choices)
+                                if idx is not None:
+                                    it["correct_index"] = idx
+                            elif "más pequeña" in qlow or "menor" in qlow:
+                                idx = _argmin_frac_index(choices)
+                                if idx is not None:
+                                    it["correct_index"] = idx
 
-                # === SOLO VISUAL: intentar escoger imagen de explicación del JSON ===
+                        # por si acaso:
+                        if not (it.get("question") or "").strip():
+                            it["question"] = "Elige la opción correcta."
+            except Exception as e:
+                log.warning("last-mile question synthesis failed: %s", e)
+
+            explanation = payload.get("explanation")
+
+            # Imagen/visual (si aplica al estilo)
+            try:
                 if style == "visual":
-                    try:
-                        visual_img_url = _pick_visual_expl_image(ctx)
-                        if visual_img_url:
-                            ut.cached_visual_image_url = visual_img_url
-                    except Exception as e:
-                        log.warning("visual expl image pick failed: %s", e)
+                    from app.core.utils_imgs import make_explanation_figure_png
+                    base = explanation or (ctx.get("summary") or t.title)
+                    ut.cached_visual_image_url = make_explanation_figure_png(t.id, me.id, base)
+            except Exception as e:
+                log.warning("visual expl generation failed: %s", e)
 
-                # === SOLO VISUAL: decorar ítems con imágenes (1ª vez) ===
-                if style == "visual":
-                    try:
-                        if isinstance(items, list):
-                            decorate_visuals_for_items(items, t.id, me.id)
-                    except Exception as e:
-                        log.warning("decorate visuals failed: %s", e)
-
-                # IMPORTANTE: NO generar TTS aquí. Se hará abajo solo si el estilo es auditivo.
-                db.add(ut); db.commit(); db.refresh(ut)
-
-            else:
-                # === REPETICIONES: variaciones del banco ===
-                if style == "kinestesico":
-                    try:
-                        items = generate_exercises_variant(ctx, style=style, avoid_numbers=avoid_numbers)
-                    except Exception:
-                        items = fallback_generate_exercises(ctx, style=style, avoid_numbers=avoid_numbers)
-                    explanation = ut.cached_explanation or (ctx.get("explanation_variants") or [None])[0]
-                    
-                ut.bank_variant_counter = int(ut.bank_variant_counter or 0) + 1
-                bank_version = int(ut.bank_version or 1)
-                new_seed = bank_version * 1_000_003 + ut.bank_variant_counter
-                ut.bank_variation_seed = new_seed
-                db.add(ut); db.commit(); db.refresh(ut)
-
-                try:
-                    items = _build_from_bank_variations(ctx, style, new_seed)
-                except TypeError:
-                    items = _build_from_bank_variations(ctx, style, seed=new_seed)
-
-                explanation = ut.cached_explanation or (ctx.get("explanation_variants") or [None])[0]
-
-            # normaliza a 10 items
-            if not isinstance(items, list):
-                items = []
-            if len(items) > 10:
-                items = items[:10]
-            while len(items) < 10:
-                items.append({
-                    "type": "multiple_choice",
-                    "question": "Elige la opción correcta.",
-                    "choices": ["Correcta", "Incorrecta 1", "Incorrecta 2", "Incorrecta 3"],
-                    "correct_index": 0,
-                    "explain": "Revisa el concepto clave."
-                })
+            # Normaliza a 10
+            items = (items[:10] if len(items) > 10 else items)
+            if len(items) < 10:
+                engine = get_engine_for_slug(t.grade, t.slug)
+                repaired = engine.validate_repair(items, ctx)
+                items = repaired[:10] if repaired else items
+                
+            try:
+                if int(ut.times_opened or 0) == 0:
+                    decorate_visuals_for_items(items, t.id, me.id)
+            except Exception as e:
+                log.warning("decorate visuals failed: %s", e)
 
             last = TopicSession(
                 user_id=me.id, topic_id=t.id, style_used=style,
@@ -288,25 +245,16 @@ def _open_session_core(
                 current_index=0,
                 explanation=explanation
             )
-            
-            try:
-                engine = get_engine_for_slug(t.grade, t.slug)
-                repaired = engine.validate_repair(last.items or [], ctx)
-                # si hubo cambios, persistimos para que la próxima apertura ya venga sano
-                if repaired != (last.items or []):
-                    last.items = repaired
-                    db.add(last); db.commit(); db.refresh(last)
-            except Exception as e:
-                log.warning("engine.validate_repair failed: %s", e)
-            
             db.add(last); db.commit(); db.refresh(last)
 
-            # registra apertura SOLO cuando se creó la sesión
-            ut.times_opened = times_opened + 1
+            ut.times_opened = int(ut.times_opened or 0) + 1
+            ut.ai_seed_done = True
+            ut.cached_explanation = explanation
             db.add(ut); db.commit(); db.refresh(ut)
         else:
             explanation = last.explanation or (ut.cached_explanation or None)
-            
+
+        # Reparación ligera en reuso (por si quedaron MCQ raras)
         try:
             engine = get_engine_for_slug(t.grade, t.slug)
             fixed = engine.validate_repair(last.items or [], ctx)
@@ -320,7 +268,7 @@ def _open_session_core(
         log.error("open_session_core failed: %s", e)
         raise HTTPException(500, "No se pudo abrir el tema, intenta de nuevo.")
 
-    # === LAZY ASSETS POR ESTILO ===
+    # Assets por estilo: TTS sólo auditivo (igual que antes)
     explanation_audio_url = None
     if style == "auditivo":
         try:
@@ -329,29 +277,20 @@ def _open_session_core(
             else:
                 exp_path = (TTS_DIR / f"sess-{last.id}-explanation.wav")
                 if not exp_path.exists():
-                    make_tts(last.explanation or explanation or "", exp_path, voice=os.getenv("TTS_VOICE", "es-ES-Standard-A"))
+                    voice_env = os.getenv("TTS_VOICE", "").strip()
+                    fallback_voices = [v for v in [voice_env, "es-ES-Standard-A", "es-US-Standard-A", "es-ES-Neural2-A"] if v]
+                    for v in fallback_voices:
+                        try:
+                            make_tts(last.explanation or explanation or "", exp_path, voice=v)
+                            break
+                        except Exception as e:
+                            log.warning("tts voice failed (%s): %s", v, e)
                 if exp_path.exists():
                     explanation_audio_url = tts_url_for(last.id, "explanation")
-                    # opcional: cachear en ut para futuras aperturas auditivas
                     ut.cached_expl_audio_url = explanation_audio_url
                     db.add(ut); db.commit()
         except Exception as e:
             log.warning("tts explanation fail: %s", e)
-
-        # Normaliza enunciados solo en auditivo
-        changed = False
-        for it in (last.items or []):
-            if it.get("type") == "multiple_choice":
-                q = it.get("question") or ""
-                q2 = neutralize_audio_words(q)
-                if q2 != q:
-                    it["question"] = q2
-                    changed = True
-        if changed:
-            db.add(last); db.commit(); db.refresh(last)
-
-    # Visual: nada que hacer aquí (ya se resolvió/generó antes si era necesario)
-    # Kinestésico: tampoco generamos nada
 
     progress_in_session = min((last.current_index or 0) * 10, 100)
 
