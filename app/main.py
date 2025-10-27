@@ -17,6 +17,7 @@ from app.routers import points as points_router
 from app.routers import me as me_router
 from app.routers import topics as topics_router
 from app.routers import tts
+from app.routers import assistant as assistant_router
 
 # <-- /static (dentro de app) ya configurado en settings_static
 from app.core.settings_static import STATIC_DIR, MEDIA_DIR  # app/static
@@ -70,6 +71,7 @@ app.include_router(me_router.router)
 app.include_router(points_router.router)
 app.include_router(topics_router.router)
 app.include_router(tts.router)
+app.include_router(assistant_router.router)
 
 @app.get("/health")
 def health():
