@@ -15,9 +15,9 @@ from app.models.assistant_explanation import AssistantExplanation
 
 # Helpers existentes
 from app.core.content import resolve_context_path
-from app.ai.gemini import generate_explanation, generate_one_image_png
+from app.ai.gemini import generate_explanation, generate_one_image_png, generate_assistant_explanation
 from app.core.settings_static import STATIC_DIR
-from app.core.utils_tts import make_tts
+from app.core.utils_tts import make_tts, tts_url_for
 
 log = logging.getLogger("assistant")
 router = APIRouter(prefix="/assistant", tags=["assistant"])
@@ -31,7 +31,9 @@ IMG_SUBDIR = STATIC_DIR / "gen"
 def _wav_url_for(expl_id: str, pid: str) -> str:
     # /static/tts/assist-<expl>-<pid>.wav
     name = f"assist-{expl_id}-{pid}.wav"
-    return f"/static/tts/{name}"
+    rel = f"/static/tts/{name}"
+    origin = os.getenv("PUBLIC_BACKEND_ORIGIN", "").rstrip("/")
+    return f"{origin}{rel}" if origin else rel
 
 def _wav_path_for(expl_id: str, pid: str) -> Path:
     TTS_SUBDIR.mkdir(parents=True, exist_ok=True)
@@ -68,7 +70,25 @@ def _split_paragraphs(text: str) -> list[str]:
             fixed.append(p if p.endswith(".") else p + ".")
     return fixed[:12]  # límite sano
 
+def _simple_visual_prompt(paragraph_text: str) -> str:
+    """
+    Prompt para una ilustración plana/infantil del concepto del párrafo.
+    Evita realismo: figuras simples, colores sólidos, estilo sticker/flat.
+    """
+    return (
+        "Ilustración plana y simple para niños de primaria, estilo pegatina sin fondo realista, "
+        "con formas geométricas y colores sólidos. Explica visualmente el concepto: "
+        f"{paragraph_text}. Usa pocos elementos, iconografía clara, texto mínimo."
+    )
+
 # ---------- Endpoints ----------
+def _abs_url(u: str | None) -> str | None:
+    if not u:
+        return None
+    if u.startswith("http://") or u.startswith("https://"):
+        return u
+    origin = os.getenv("PUBLIC_BACKEND_ORIGIN", "").rstrip("/")
+    return f"{origin}{u}" if (origin and u.startswith("/")) else u
 
 @router.get("/topics")
 def get_topics(db: Session = Depends(get_db), me: User = Depends(get_current_user)):
@@ -117,6 +137,14 @@ def history(db: Session = Depends(get_db), me: User = Depends(get_current_user))
         # solo guarda la más reciente por estilo
         if key not in bucket[g][t.id]:
             payload = expl.payload or {}
+            paras = payload.get("paragraphs") or []
+
+            for p in paras:
+                if "imageUrl" in p:
+                    p["imageUrl"] = _abs_url(p.get("imageUrl"))
+                if "audioUrl" in p:
+                    p["audioUrl"] = _abs_url(p.get("audioUrl"))
+                    
             bucket[g][t.id][key] = {
                 "id": expl.id,
                 "topicId": t.id,
@@ -125,7 +153,7 @@ def history(db: Session = Depends(get_db), me: User = Depends(get_current_user))
                 "style": expl.style,
                 "status": expl.status,
                 "createdAt": expl.created_at.isoformat() if expl.created_at else None,
-                "paragraphs": payload.get("paragraphs") or [],
+                "paragraphs": paras,
                 "notes": expl.notes or None,
             }
 
@@ -170,6 +198,18 @@ def get_explanation(expl_id: str, db: Session = Depends(get_db), me: User = Depe
     if not rec or rec.user_id != me.id:
         raise HTTPException(404)
     payload = rec.payload or {}
+    paragraphs = payload.get("paragraphs") or []
+
+    # absolutiza urls y recolecta audios para pre-carga en el front
+    audio_urls: list[str] = []
+    for p in paragraphs:
+        if "imageUrl" in p:
+            p["imageUrl"] = _abs_url(p.get("imageUrl"))
+        if "audioUrl" in p:
+            p["audioUrl"] = _abs_url(p.get("audioUrl"))
+            if p["audioUrl"]:
+                audio_urls.append(p["audioUrl"])  # <-- aquí juntamos
+
     return {
         "id": rec.id,
         "topicId": rec.topic_id,
@@ -179,7 +219,8 @@ def get_explanation(expl_id: str, db: Session = Depends(get_db), me: User = Depe
         "status": rec.status,
         "notes": rec.notes,
         "createdAt": rec.created_at.isoformat() if rec.created_at else None,
-        "paragraphs": payload.get("paragraphs") or []
+        "paragraphs": paragraphs,
+        "audioUrls": audio_urls,
     }
 
 @router.post("/explanations/{expl_id}/resume")
@@ -236,7 +277,13 @@ def _worker_generate(expl_id: str):
                 text = "\n\n".join(p.get("text","") for p in prev_visual.payload["paragraphs"])
 
         if not text:
-            text = generate_explanation(ctx) or (topic.title + ": explicación.")
+            try:
+                data = generate_assistant_explanation(ctx, rec.style)
+                # une párrafos para el flujo de división
+                text = "\n\n".join([p.get("text","") for p in (data.get("paragraphs") or [])]) or ""
+            except Exception as e:
+                log.warning("assistant long explanation failed, fallback to short: %s", e)
+                text = generate_explanation(ctx) or (topic.title + ": explicación.")
 
         paragraphs_txt = _split_paragraphs(text)
         payload = rec.payload or {"topicTitle": topic.title}
@@ -249,28 +296,26 @@ def _worker_generate(expl_id: str):
         for i, ptxt in enumerate(paragraphs_txt[idx_start:], start=idx_start):
             pid = f"p{i+1}"
             row = {"id": pid, "text": ptxt}
-
+        
             if rec.style == "visual":
-                # Imagen opcional ligera: una sola para p1, o intenta mini-fig para algunas
                 try:
-                    if i == 0:
-                        png = generate_one_image_png(ptxt[:140])
-                        if png:
-                            out = _png_path_for(expl_id, pid)
-                            out.write_bytes(png)
-                            row["imageUrl"] = _png_url_for(expl_id, pid)
+                    png = generate_one_image_png(_simple_visual_prompt(ptxt[:220]))
+                    if png:
+                        out = _png_path_for(expl_id, pid)
+                        out.write_bytes(png)
+                        row["imageUrl"] = _png_url_for(expl_id, pid)
                 except Exception as e:
-                    log.warning("visual img gen fail: %s", e)
-
-            else:  # auditivo -> TTS por párrafo
+                    log.warning("visual img gen fail (p%s): %s", pid, e)
+        
+            else:  # auditivo
                 try:
                     wav_path = _wav_path_for(expl_id, pid)
                     make_tts(ptxt, wav_path, voice=os.getenv("TTS_VOICE","es-ES-Neural2-A"))
                     if wav_path.exists():
                         row["audioUrl"] = _wav_url_for(expl_id, pid)
                 except Exception as e:
-                    log.warning("tts per-paragraph fail: %s", e)
-
+                    log.warning("tts per-paragraph fail (p%s): %s", pid, e)
+        
             payload["paragraphs"].append(row)
             rec.payload = payload
             db.add(rec); db.commit()

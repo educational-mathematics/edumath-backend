@@ -50,6 +50,78 @@ def _post_genai(model: str, payload: dict, timeout: int = 60) -> dict:
         raise RuntimeError(f"[gemini] non-200: {resp.status_code} body={resp.text[:400]}")
     return resp.json()
 
+def _call_gemini_json(prompt_text: str,
+                      model: str | None = None,
+                      timeout: int = 60,
+                      temperature: float = 0.3) -> dict | list:
+    """
+    Envía un prompt en texto y espera una respuesta en formato JSON.
+    - Extrae el texto del primer candidato/parte.
+    - Limpia cercas de código ``` y prefijos tipo 'json'.
+    - Intenta parsear; si falla, recorta desde el primer '{' o '[' al último '}' o ']'.
+    Retorna dict o list (según lo que devuelva el modelo).
+    """
+    if not AI_ENABLED:
+        # Devuelve un esqueleto “vacío” seguro
+        return {"paragraphs": [], "examples": []}
+
+    ensure_ai_ready()
+    model = (model or MODEL_NAME).strip()
+
+    payload = {
+        "generationConfig": {"temperature": temperature},
+        "contents": [{"parts": [{"text": prompt_text}]}],
+    }
+
+    data = _post_genai(model, payload, timeout=timeout)
+
+    # ---- extraer texto de la respuesta ----
+    text = ""
+    try:
+        cand = (data.get("candidates") or [])[0]
+        parts = (cand.get("content") or {}).get("parts") or []
+        # Concatena todos los .text por si vinieran fragmentados
+        text = "".join([p.get("text", "") for p in parts if isinstance(p, dict)]).strip()
+    except Exception:
+        text = ""
+
+    if not text:
+        raise RuntimeError("Gemini devolvió texto vacío o sin partes .text")
+
+    # ---- limpieza de fences y prefijos ----
+    t = text.strip()
+    # quita ```json ... ``` o ``` ... ```
+    if t.startswith("```"):
+        t = t.strip("`").strip()
+        # si quedó 'json' al inicio, bórralo
+        if t.lower().startswith("json"):
+            t = t[4:].strip()
+
+    # a veces ponen la palabra 'json' como primera línea
+    if re.match(r"^\s*json\s*[\r\n]", t, re.I):
+        t = re.sub(r"^\s*json\s*[\r\n]+", "", t, flags=re.I)
+
+    # intento 1: parse directo
+    try:
+        return json.loads(t)
+    except Exception:
+        pass
+
+    # intento 2: recortar al primer/último bloque JSON
+    first = min([i for i in [t.find("{"), t.find("[")] if i != -1], default=-1)
+    last_brace = t.rfind("}")
+    last_brack = t.rfind("]")
+    last = max(last_brace, last_brack)
+    if first != -1 and last != -1 and last > first:
+        snippet = t[first:last+1].strip()
+        try:
+            return json.loads(snippet)
+        except Exception:
+            pass
+
+    # si todo falla, lanza error para que el caller decida (o use fallback)
+    raise RuntimeError(f"No se pudo parsear JSON de Gemini. Texto recibido (recortado): {t[:400]}")
+
 # ------------------ Utils ------------------
 def _short(text: str, n=280) -> str:
     t = (text or "").strip()
@@ -583,3 +655,35 @@ def generate_one_image_png(prompt: str) -> bytes | None:
     except Exception as e:
         print(f"[gemini] image exception: {e}")
         return None
+
+def generate_assistant_explanation(context_json: dict, style: str) -> dict:
+    """
+    Devuelve:
+      {
+        "paragraphs": [{"text": "..."} , ... 4-5 items],
+        "examples": [{"title":"...", "text":"..."} ... 2-3 items]
+      }
+    """
+    prompt = f"""
+Eres un asistente pedagógico para primaria.
+Contexto ESTRICTO del tema (no inventes fuera de esto):
+{json.dumps(context_json, ensure_ascii=False)}
+
+Tarea:
+- Redacta una EXPLICACIÓN LARGA y CLARA para un estudiante de primaria.
+- 4 a 5 párrafos, cada uno ~4 líneas (no más de 450 caracteres por párrafo).
+- Incluye al final 2 a 3 ejemplos numéricos explicados PASO A PASO.
+- Estilo: {"VISUAL (menciona apoyos visuales simples, comparaciones)" if style=="visual" else "AUDITIVO (frases cortas, ritmo oral, transiciones suaves)"}.
+- No pongas viñetas; devuélvelo estructurado en JSON.
+
+FORMATO JSON ESTRICTO:
+{{
+  "paragraphs": [{{"text": "..."}} , ...],
+  "examples": [{{"title":"...", "text":"..."}}, ...]
+}}
+"""
+    data = _call_gemini_json(prompt)
+    # saneo mínimo
+    paras = [p for p in (data.get("paragraphs") or []) if (p.get("text") or "").strip()]
+    exs   = [e for e in (data.get("examples") or []) if (e.get("text") or "").strip()]
+    return {"paragraphs": paras[:5], "examples": exs[:3]}
