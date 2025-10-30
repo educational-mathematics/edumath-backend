@@ -657,13 +657,7 @@ def generate_one_image_png(prompt: str) -> bytes | None:
         return None
 
 def generate_assistant_explanation(context_json: dict, style: str) -> dict:
-    """
-    Devuelve:
-      {
-        "paragraphs": [{"text": "..."} , ... 4-5 items],
-        "examples": [{"title":"...", "text":"..."} ... 2-3 items]
-      }
-    """
+
     prompt = f"""
 Eres un asistente pedagógico para primaria.
 Contexto ESTRICTO del tema (no inventes fuera de esto):
@@ -687,3 +681,23 @@ FORMATO JSON ESTRICTO:
     paras = [p for p in (data.get("paragraphs") or []) if (p.get("text") or "").strip()]
     exs   = [e for e in (data.get("examples") or []) if (e.get("text") or "").strip()]
     return {"paragraphs": paras[:5], "examples": exs[:3]}
+
+def build_visual_image_prompt(context_json: dict, paragraph_text: str, *, allow_short_title=True) -> str:
+    """
+    Crea un prompt para imágenes educativas SIN texto explicativo.
+    Permite solo un título corto (1–4 palabras) y numerales/símbolos sencillos (p.ej. '1/4').
+    """
+    topic = (context_json.get("title") or "").strip()
+    # extrae posible etiqueta muy corta del párrafo (fallback)
+    candidate_title = topic or "Fracciones básicas"
+
+    return (
+        "Ilustración educativa simple en 2D, estilo plano y limpio, colores suaves, "
+        "pensada para niños de primaria. Muestra el CONCEPTO de forma visual (diagramas, "
+        "rebanadas, barras fraccionarias o figuras), con alta legibilidad y sin texto corrido. "
+        f"{'Incluye un título corto: ' + candidate_title + '.' if allow_short_title else ''} "
+        "REGLAS DE TEXTO: NO coloques oraciones ni explicaciones dentro de la imagen. "
+        "Solo se permiten: (a) un título muy corto (1–4 palabras) y (b) números/símbolos como '1/4'. "
+        "Evita párrafos, notas, globos o banners con frases largas. Español correcto en cualquier rótulo. "
+        "Composición centrada, contraste suficiente, sin marcas de agua."
+    )

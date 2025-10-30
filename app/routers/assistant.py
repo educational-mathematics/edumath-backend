@@ -15,7 +15,7 @@ from app.models.assistant_explanation import AssistantExplanation
 
 # Helpers existentes
 from app.core.content import resolve_context_path
-from app.ai.gemini import generate_explanation, generate_one_image_png, generate_assistant_explanation
+from app.ai.gemini import generate_explanation, generate_one_image_png, generate_assistant_explanation, build_visual_image_prompt
 from app.core.settings_static import STATIC_DIR
 from app.core.utils_tts import make_tts, tts_url_for
 
@@ -296,6 +296,18 @@ def _worker_generate(expl_id: str):
         for i, ptxt in enumerate(paragraphs_txt[idx_start:], start=idx_start):
             pid = f"p{i+1}"
             row = {"id": pid, "text": ptxt}
+            
+            #if rec.style == "visual":
+            #    try:
+            #        # Prompt que evita texto largo, permite título corto y números/símbolos
+            #        img_prompt = build_visual_image_prompt(ctx, ptxt, allow_short_title=True)
+            #        png = generate_one_image_png(img_prompt)
+            #        if png:
+            #            out = _png_path_for(expl_id, pid)
+            #            out.write_bytes(png)
+            #            row["imageUrl"] = _png_url_for(expl_id, pid)
+            #    except Exception as e:
+            #        log.warning("visual img gen fail: %s", e)
         
             if rec.style == "visual":
                 try:
