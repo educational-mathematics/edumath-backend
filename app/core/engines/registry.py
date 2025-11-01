@@ -2,9 +2,11 @@ from __future__ import annotations
 from typing import Optional, Tuple, Dict, Type
 from app.core.engines.base import TopicEngine
 from app.core.engines.grades.grade3.fracciones_basicas import FraccionesBasicasEngine
+from app.core.engines.grades.grade6.porcentajes import PorcentajesEngine
 
 _ENGINE_MAP: Dict[Tuple[int, str], Type[TopicEngine]] = {
     (3, "fracciones-basicas"): FraccionesBasicasEngine,
+    (6, "porcentajes"): PorcentajesEngine,
 }
 
 def _normalize_args(a, b=None) -> Tuple[Optional[int], str]:
