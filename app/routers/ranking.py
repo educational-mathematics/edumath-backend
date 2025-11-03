@@ -45,10 +45,6 @@ def my_rank(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    """
-    Devuelve tu fila de ranking (rank/alias/points/avatar_url).
-    Requiere que tengas 'alias' (si no, 404).
-    """
     if not me.alias:
         raise HTTPException(status_code=404, detail="No tienes alias para el ranking")
 
@@ -78,7 +74,6 @@ def my_rank(
     )
 
     if not row:
-        # No debería pasar si tienes alias, pero por si acaso:
         raise HTTPException(status_code=404, detail="No se encontró tu posición en el ranking")
 
     return RankingRow(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import json
+import re
 from typing import Any, Dict, List, Literal, Optional
 
 from app.core.engines.base import TopicEngine
@@ -73,3 +74,16 @@ class PorcentajesEngine(TopicEngine):
     def generate_exercises(self, style: VAK, avoid_numbers: Optional[List[int]] = None) -> List[Dict[str, Any]]:
         ctx = self.load_context()
         return generate_exercises_variant(ctx, style, avoid_numbers=avoid_numbers or [])
+    
+    def make_visual_prompt(self, paragraph_text: str, context_json: Dict[str, Any]) -> str:
+        m = re.search(r"(\d{1,3})\s*%", paragraph_text or "")
+        p = max(0, min(100, int(m.group(1))) ) if m else 50
+
+        return (
+            "Ilustración educativa limpia, estilo ficha escolar, con título y subtítulo. "
+            "Texto correcto en español y sin errores ortográficos. "
+            f"El título dice 'Porcentajes: partes de un total' y un subtítulo explica: "
+            f"'El porcentaje indica cuántas partes de cada cien representamos; por ejemplo, {p}% coloreado'. "
+            f"Debajo, muestra una cuadrícula 10x10 (100 celdas) con {p} coloreadas en azul y las demás grises. "
+            "Estilo simple, colores planos, sin logos ni marcas, formato horizontal, fondo blanco."
+        )

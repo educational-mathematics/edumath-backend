@@ -22,7 +22,8 @@ from app.ai.gemini import (
 from app.ai.variation_utils import extract_used_fractions
 
 # Badges / puntos
-from app.domain.badges.service import on_points_changed
+from app.domain.badges.service import on_points_changed, on_topic_finished_awards, award_by_slug
+
 from app.models.badge import Badge
 from app.models.user_badge import UserBadge
 
@@ -220,8 +221,9 @@ def _open_session_core(
             try:
                 if style == "visual":
                     from app.core.utils_imgs import make_explanation_figure_png
-                    base = explanation or (ctx.get("summary") or t.title)
-                    ut.cached_visual_image_url = make_explanation_figure_png(t.id, me.id, base)
+                    if not ut.cached_visual_image_url:  # ← importante: no regenerar si ya existe
+                        base = explanation or (ctx.get("summary") or t.title)
+                        ut.cached_visual_image_url = make_explanation_figure_png(t.slug, t.id, me.id, base)
             except Exception as e:
                 log.warning("visual expl generation failed: %s", e)
 
@@ -234,7 +236,7 @@ def _open_session_core(
                 
             try:
                 if style == "visual" and int(ut.times_opened or 0) == 0:
-                    decorate_visuals_for_items(items, t.id, me.id)
+                    decorate_visuals_for_items(items, t.id, me.id, t.slug)
             except Exception as e:
                 log.warning("decorate visuals failed: %s", e)
 
@@ -583,7 +585,7 @@ def finish(session_id: int, body: dict | None = None, db: Session = Depends(get_
 
         # Base 100 + bonus “sin errores”
         bonus = 50 if int(sess.mistakes_cnt or 0) == 0 else 0
-        new_points = old_points + 100 + bonus
+        new_points = old_points + 1000 + bonus #cambiar esto xd
         me_db.points = new_points
 
         sess.points_awarded = True
@@ -609,6 +611,36 @@ def finish(session_id: int, body: dict | None = None, db: Session = Depends(get_
                 })
     else:
         db.commit()
+        
+    # ==== NUEVO: insignias por finalización de temas ====
+    extra_slugs = on_topic_finished_awards(db, me.id, just_finished_ut=ut, session=sess)
+    if extra_slugs:
+        # Evita duplicar si ya vinieron por puntos
+        already = {a["slug"] for a in awarded}
+        new_slugs = [s for s in extra_slugs if s not in already]
+
+        if new_slugs:
+            rows2 = db.execute(select(Badge).where(Badge.slug.in_(new_slugs))).scalars().all()
+            for b in rows2:
+                # Intenta otorgar de forma idempotente
+                try:
+                    award_by_slug(db, me.id, b.slug)
+                except Exception:
+                    pass
+
+                owners = db.execute(
+                    select(func.count(func.distinct(UserBadge.user_id))).where(UserBadge.badge_id == b.id)
+                ).scalar_one() or 0
+                total_users = db.execute(select(func.count(User.id))).scalar_one() or 1
+                rarity = round(owners * 100.0 / total_users, 2)
+                awarded.append({
+                    "id": b.id,
+                    "slug": b.slug,
+                    "title": b.title,
+                    "imageUrl": b.image_url,
+                    "rarityPct": rarity,
+                    "owned": True
+                })
 
     total_attempts = int(sess.attempts_cnt or 0)
     total_correct  = int(sess.score_raw or 0)
