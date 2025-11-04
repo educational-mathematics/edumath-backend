@@ -585,7 +585,7 @@ def finish(session_id: int, body: dict | None = None, db: Session = Depends(get_
 
         # Base 100 + bonus “sin errores”
         bonus = 50 if int(sess.mistakes_cnt or 0) == 0 else 0
-        new_points = old_points + 1000 + bonus #cambiar esto xd
+        new_points = old_points + 150 + bonus #cambiar esto xd
         me_db.points = new_points
 
         sess.points_awarded = True
