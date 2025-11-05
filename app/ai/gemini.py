@@ -8,7 +8,7 @@ from urllib3.util.retry import Retry
 # ------------------ Config ------------------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 MODEL_NAME     = os.getenv("MODEL_NAME", "gemini-2.5-flash").strip()
-IMAGE_MODEL    = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image-preview").strip()
+IMAGE_MODEL    = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image").strip()
 TTS_MODEL      = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts").strip()
 AI_ENABLED     = bool(GEMINI_API_KEY) and bool(MODEL_NAME)
 
