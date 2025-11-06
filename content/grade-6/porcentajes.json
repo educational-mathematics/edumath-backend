@@ -1,0 +1,185 @@
+{
+  "slug": "porcentajes",
+  "title": "Porcentajes",
+  "grade": 6,
+
+  "reuse_policy": {
+    "first_run": "ai_or_cached",
+    "second_run": "bank",
+    "later_runs": "variations_from_bank"
+  },
+
+  "concepts": [
+    { "id": "def", "text": "Un porcentaje N% significa N de cada 100. 100% equivale a 1 entero; 50% a 1/2; 25% a 1/4; 10% a 1/10; 1% a 1/100." },
+    { "id": "de-una-cantidad", "text": "Para hallar p% de A, multiplica A por p/100. Ejemplo: 40% de 120 = 0.40 × 120 = 48." },
+    { "id": "base-desde-parte", "text": "Si B es p% de A, entonces A = B × 100 / p. Ejemplo: Si 360 es 50% de A, A = 360 × 100 / 50 = 720." },
+    { "id": "variacion", "text": "Aumentos y descuentos: nuevo = base × (1 ± p/100). Ejemplo: subir 12% a 150 → 150 × 1.12 = 168." },
+    { "id": "equivalencias", "text": "Relación con fracciones y decimales: N% = N/100 = N ÷ 100. 12.5% = 1/8; 75% = 3/4; 33.33% ≈ 1/3." }
+  ],
+
+  "examples": [
+    { "given": "¿Cuál es el 20% de 160?", "explain": "20% = 0.20; 0.20 × 160 = 32." },
+    { "given": "¿360 es el 50% de qué número?", "explain": "Si 360 es 50%, el 100% es el doble: 720." }
+  ],
+
+  "constraints": {
+    "allowed_numbers": { "min": 10, "max": 2000 },
+    "avoid": ["porcentajes negativos", "tasas compuestas"],
+    "percent_steps": [5, 10, 12.5, 15, 20, 25, 30, 40, 50, 60, 75, 80, 90]
+  },
+
+  "explanation_variants": [
+    "Un porcentaje expresa cuántas partes de cada 100 tomamos. Por ejemplo, 25% significa 25 de 100, que es lo mismo que 1/4. Para calcular p% de una cantidad A, multiplicamos A por p/100. También podemos recuperar el total cuando conocemos una parte: si B es p% de A, entonces A = B × 100 / p. Los porcentajes también sirven para aumentos y descuentos, usando el factor (1 ± p/100).",
+    "Piensa en una rejilla de 10×10 con 100 casillas: colorear 40 casillas representa 40%. Con esa idea, calcular 40% de 120 es tomar 0.40 de 120. Si sabemos que 360 es el 50% de un número, el 100% será el doble. Cuando hay rebajas o incrementos, basta con multiplicar por 0.88 (−12%) o 1.12 (+12%).",
+    "Los porcentajes relacionan fracciones y decimales: N% = N/100. Así, 75% equivale a 3/4 y 12.5% a 1/8. Para hallar un porcentaje de una cantidad multiplicamos por N/100; para reconstruir el total, dividimos entre N/100. En cambios porcentuales aplicamos un único factor multiplicativo sobre la base."
+  ],
+
+  "visual_assets": {
+    "image_prompts": [
+      "Tira 10×10 (100 celdas) con 40 sombreadas y etiqueta '40%'.",
+      "Círculo tipo torta con 3/4 sombreado y etiqueta '75%'.",
+      "Barra doble: la primera muestra 50% sombreado; la segunda, 100%, para ilustrar que 360 es 50% de 720."
+    ]
+  },
+
+  "kinesthetic_setups": [
+    "Arrastra etiquetas de porcentaje (25%, 50%, 75%, 10%) a las barras que muestren la parte sombreada correspondiente.",
+    "Clasifica tarjetas según 'aumento' o 'descuento' a partir de expresiones como ×1.12, ×0.90, ×0.75.",
+    "Empareja equivalencias: 20% ↔ 1/5, 12.5% ↔ 1/8, 75% ↔ 3/4."
+  ],
+
+  "exercise_bank": [
+    {
+      "type": "multiple_choice",
+      "question": "¿Cuál es el 40% de 120?",
+      "choices": ["46", "49", "48", "47"],
+      "correct_index": 2,
+      "explain": "40% = 0.40; 0.40 × 120 = 48.",
+      "styles": ["visual", "auditivo"],
+      "speak": true
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿Cuál es el 20% de 160?",
+      "choices": ["32", "35", "33", "34"],
+      "correct_index": 0,
+      "explain": "0.20 × 160 = 32.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿Cuál es el 60% de 600?",
+      "choices": ["390", "360", "380", "350"],
+      "correct_index": 1,
+      "explain": "0.60 × 600 = 360.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿Cuál es el 80% de 360?",
+      "choices": ["291", "288", "290", "287"],
+      "correct_index": 1,
+      "explain": "0.80 × 360 = 288.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿El 90% de qué número es 45?",
+      "choices": ["50", "53", "51", "54"],
+      "correct_index": 0,
+      "explain": "Si 45 = 90% de N, entonces N = 45 × 100 / 90 = 50.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿De qué número es 360 el 50%?",
+      "choices": ["700", "730", "710", "720"],
+      "correct_index": 3,
+      "explain": "N = 360 × 100 / 50 = 720.",
+      "styles": ["visual", "auditivo"],
+      "speak": true
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿El 75% de qué número es 660?",
+      "choices": ["850", "880", "860", "870"],
+      "correct_index": 3,
+      "explain": "N = 660 × 100 / 75 = 880 (ojo: redondeos en distractores).",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿El 12% de qué número es 150?",
+      "choices": ["1210", "1240", "1220", "1250"],
+      "correct_index": 3,
+      "explain": "N = 150 × 100 / 12 = 1250.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Un precio de 150 aumenta 12%. ¿Cuál es el nuevo precio?",
+      "choices": ["164", "166", "168", "170"],
+      "correct_index": 2,
+      "explain": "Nuevo = 150 × 1.12 = 168.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "match_pairs",
+      "title": "Empareja porcentaje con fracción",
+      "pairs": [
+        ["25%", "1/4"],
+        ["50%", "1/2"],
+        ["75%", "3/4"]
+      ],
+      "explain": "Relaciona cada porcentaje con su fracción equivalente.",
+      "styles": ["visual", "kinestesico"]
+    },
+    {
+      "type": "drag_to_bucket",
+      "title": "Clasifica como Aumento o Descuento",
+      "items": ["×1.12", "×0.85", "×0.90", "×1.25"],
+      "buckets": ["Aumento", "Descuento"],
+      "solution": {
+        "Aumento": ["×1.12", "×1.25"],
+        "Descuento": ["×0.85", "×0.90"]
+      },
+      "explain": "Factores mayores que 1 aumentan; menores que 1 descuentan.",
+      "styles": ["kinestesico", "visual"]
+    },
+    {
+      "type": "drag_to_bucket",
+      "title": "Une figura con porcentaje sombreado",
+      "items": ["25%", "50%", "75%", "10%"],
+      "buckets": ["Cuarto", "Mitad", "Tres cuartos", "Diez de cien"],
+      "solution": {
+        "Cuarto": ["25%"],
+        "Mitad": ["50%"],
+        "Tres cuartos": ["75%"],
+        "Diez de cien": ["10%"]
+      },
+      "explain": "Arrastra cada etiqueta al concepto correcto.",
+      "styles": ["kinestesico", "visual"]
+    }
+  ],
+
+  "variation_rules": {
+    "multiple_choice": {
+      "enabled": true,
+      "percent_delta": [-10, -5, 0, 5, 10],
+      "base_delta": [-50, -20, 0, 20, 50],
+      "respect_constraints": true,
+      "avoid_duplicates": true
+    },
+    "match_pairs": {
+      "enabled": true,
+      "shuffle_pairs": true,
+      "max_pairs": 6
+    },
+    "drag_to_bucket": {
+      "enabled": true,
+      "shuffle_items": true,
+      "min_items": 4,
+      "max_items": 8
+    }
+  }
+}
