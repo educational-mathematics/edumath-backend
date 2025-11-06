@@ -212,3 +212,8 @@ __marimo__/
 edumath-secrets/
 secrets/
 *.json
+
+# no ignorar los de content/
+!content/
+!content/*.json
+!content/**/*.json

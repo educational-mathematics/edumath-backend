@@ -7,6 +7,7 @@ from app.models.user_badge import UserBadge
 from app.models.topic import Topic
 from app.models.user_topic import UserTopic
 from app.models.topic_session import TopicSession
+from app.models.assistant_explanation import AssistantExplanation
 
 class BadgeNotFound(Exception): ...
 class BadgeAlreadyOwned(Exception): ...
@@ -72,6 +73,14 @@ BADGE_RULES = {
         "condition": lambda user, db: _check_last_topic_only_last_wrong(user, db)
     },
 }
+
+def _count_assistant_explanations(db: Session, user_id: int) -> int:
+    return int(
+        db.execute(
+            select(func.count(AssistantExplanation.id))
+            .where(AssistantExplanation.user_id == user_id)
+        ).scalar_one() or 0
+    )
 
 def award_by_slug(db: Session, user_id: int, slug: str) -> UserBadge:
     badge = db.execute(select(Badge).where(Badge.slug == slug)).scalar_one_or_none()
@@ -257,6 +266,12 @@ def on_topic_finished_awards(db: Session, user_id: int, just_finished_ut: UserTo
     if int(just_finished_ut.completed_count or 0) == 1 and completed_once == n_topics:
         if _failed_only_last_question_this_session(session):
             slugs.add("alas-cortadas")
+
+    # "independiente"
+    if completed_once == n_topics:
+        used_assistant = _count_assistant_explanations(db, user_id) > 0
+        if not used_assistant:
+            slugs.add("independiente")
 
     return list(slugs)
 

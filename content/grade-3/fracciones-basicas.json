@@ -1,0 +1,189 @@
+{
+  "slug": "fracciones-basicas",
+  "title": "Fracciones básicas",
+  "grade": 3,
+
+  "reuse_policy": {
+    "first_run": "ai_or_cached",
+    "second_run": "bank",
+    "later_runs": "variations_from_bank"
+  },
+
+  "concepts": [
+    { "id": "def", "text": "Una fracción a/b representa a partes iguales de un entero. a es el numerador (partes tomadas) y b el denominador (partes totales)." },
+    { "id": "equiv", "text": "Fracciones equivalentes tienen el mismo valor aunque numerador y denominador sean distintos (por ejemplo, 1/2 = 2/4 = 3/6)." },
+    { "id": "comparar", "text": "Si el denominador es igual, la fracción con mayor numerador es mayor; si el numerador es igual, la fracción con menor denominador es mayor." }
+  ],
+
+  "examples": [
+    { "given": "1/2 = 2/4", "explain": "Multiplica numerador y denominador por 2: 1×2 / 2×2." },
+    { "given": "3/4 > 2/4", "explain": "Mismo denominador (4): comparamos numeradores (3 > 2)." }
+  ],
+
+  "constraints": {
+    "allowed_numbers": { "min": 1, "max": 12 },
+    "avoid": ["mixtas", "negativas", "decimales"]
+  },
+
+  "explanation_variants": [
+    "Las fracciones nos ayudan a representar partes de un todo. En a/b, el numerador a indica cuántas partes tomamos y el denominador b indica en cuántas partes iguales está dividido el entero. Dos fracciones pueden ser equivalentes si representan la misma cantidad aunque usen números distintos, como 1/2 y 2/4. Para compararlas, si el denominador es el mismo, la que tenga mayor numerador es la más grande; si el numerador es el mismo, la que tenga menor denominador es la mayor.",
+    "Una fracción expresa una parte de un todo dividido en partes iguales. En a/b, a dice cuántas partes tomas y b cuántas partes hay en total. Existen fracciones equivalentes, como 3/6 y 1/2, que valen lo mismo. Al comparar, con mismo denominador manda el numerador más grande; con mismo numerador manda el denominador más pequeño.",
+    "Piensa en una pizza cortada en porciones iguales: si comes 2 de 8, comes 2/8 del total. Fracciones como 1/2 y 4/8 son equivalentes porque representan el mismo trozo. Para decidir cuál fracción es mayor, si los denominadores coinciden, la de mayor numerador gana; si los numeradores coinciden, la de menor denominador es mayor."
+  ],
+
+  "visual_assets": {
+    "image_prompts": [
+      "Ilustración simple: un círculo dividido en 4 partes iguales con 1 parte sombreada (estilo educativo).",
+      "Rectángulo dividido en 8 partes iguales con 5 sombreadas; etiqueta 5/8.",
+      "Dos tiras: una con 1/2 y otra con 2/4 sombreadas para mostrar equivalencia."
+    ]
+  },
+
+  "kinesthetic_setups": [
+    "Entrega virtual de tarjetas con fracciones (p. ej., 1/2, 2/4, 3/6, 3/4) y dos cajas: 'Equivalentes a 1/2' y 'No equivalentes'.",
+    "Tarjetas con fracciones propias e impropias; dos cajas: 'Propias' y 'Impropias'.",
+    "Tarjetas con pares (concepto ↔ ejemplo breve) para emparejar."
+  ],
+
+  "exercise_bank": [
+    {
+      "type": "multiple_choice",
+      "question": "Una pizza está dividida en 4 porciones iguales y un niño se come 1. ¿Qué fracción representa lo que comió?",
+      "choices": ["4/1", "1/4", "3/4", "1/3"],
+      "correct_index": 1,
+      "explain": "El numerador (1) son las porciones comidas; el denominador (4) las porciones totales.",
+      "styles": ["visual", "auditivo"],
+      "speak": true
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿Cuál de estas fracciones es equivalente a 1/2?",
+      "choices": ["1/4", "2/6", "2/4", "3/2"],
+      "correct_index": 2,
+      "explain": "Multiplica numerador y denominador por 2 para obtener 2/4; representa el mismo valor.",
+      "styles": ["visual", "auditivo"],
+      "speak": true
+    },
+    {
+      "type": "multiple_choice",
+      "question": "En la fracción 3/5, ¿qué número indica en cuántas partes iguales está dividido el total?",
+      "choices": ["3", "5", "8", "2"],
+      "correct_index": 1,
+      "explain": "El denominador (5) representa las partes totales.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Resuelve: 3/7 + 2/7 = ?",
+      "choices": ["5/14", "5/7", "6/7", "7/5"],
+      "correct_index": 1,
+      "explain": "Con mismo denominador, suma numeradores: 3 + 2 = 5; denominador 7.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Resuelve: 6/8 - 3/8 = ?",
+      "choices": ["9/8", "3/0", "3/8", "6/3"],
+      "correct_index": 2,
+      "explain": "Con mismo denominador, resta numeradores: 6 − 3 = 3; denominador 8.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿Cuál de estas fracciones es mayor?",
+      "choices": ["1/5", "4/5", "2/5", "3/5"],
+      "correct_index": 1,
+      "explain": "Mismo denominador: el mayor numerador manda (4/5).",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "¿Cuál de estas fracciones es la más pequeña?",
+      "choices": ["1/3", "1/2", "1/5", "1/4"],
+      "correct_index": 2,
+      "explain": "Mismo numerador: la de mayor denominador es menor (1/5).",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Si tienes 12 lápices y regalas 1/2, ¿cuántos lápices regalaste?",
+      "choices": ["2", "4", "6", "12"],
+      "correct_index": 2,
+      "explain": "La mitad de 12 es 6.",
+      "styles": ["visual", "auditivo"],
+      "speak": true
+    },
+    {
+      "type": "multiple_choice",
+      "question": "En la fracción 7/9, ¿cuál es el numerador?",
+      "choices": ["7", "9", "16", "2"],
+      "correct_index": 0,
+      "explain": "El numerador es el número de arriba: 7.",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "multiple_choice",
+      "question": "En un rectángulo dividido en 8 partes iguales, 5 están coloreadas. ¿Qué fracción representa la parte coloreada?",
+      "choices": ["5/3", "8/5", "5/8", "3/8"],
+      "correct_index": 2,
+      "explain": "Partes coloreadas: 5 (numerador). Partes totales: 8 (denominador).",
+      "styles": ["visual", "auditivo"]
+    },
+    {
+      "type": "match_pairs",
+      "title": "Empareja concepto con ejemplo",
+      "pairs": [
+        ["Fracción equivalente", "1/2 = 2/4"],
+        ["Mayor con mismo denominador", "3/4 > 2/4"],
+        ["Numerador", "Partes tomadas"]
+      ],
+      "explain": "Relaciona cada concepto con el ejemplo correcto.",
+      "styles": ["visual", "kinestesico"]
+    },
+    {
+      "type": "drag_to_bucket",
+      "title": "Clasifica como Propias o Impropias",
+      "items": ["3/4", "5/3", "7/8", "9/7"],
+      "buckets": ["Propias", "Impropias"],
+      "solution": {
+        "Propias": ["3/4", "7/8"],
+        "Impropias": ["5/3", "9/7"]
+      },
+      "explain": "Propias: numerador < denominador. Impropias: numerador ≥ denominador.",
+      "styles": ["kinestesico", "visual"]
+    },
+    {
+      "type": "drag_to_bucket",
+      "title": "Equivalentes a 1/2 vs No equivalentes",
+      "items": ["1/2", "2/4", "3/6", "3/5", "4/8"],
+      "buckets": ["Equivalentes a 1/2", "No equivalentes"],
+      "solution": {
+        "Equivalentes a 1/2": ["1/2", "2/4", "3/6", "4/8"],
+        "No equivalentes": ["3/5"]
+      },
+      "explain": "Multiplica o simplifica para decidir equivalencia con 1/2.",
+      "styles": ["kinestesico", "visual"]
+    }
+  ],
+
+  "variation_rules": {
+    "multiple_choice": {
+      "enabled": true,
+      "numerator_delta": [-2, -1, 0, 1, 2],
+      "denominator_delta": [-1, 0, 1, 2],
+      "respect_constraints": true,
+      "avoid_duplicates": true
+    },
+    "match_pairs": {
+      "enabled": true,
+      "shuffle_pairs": true,
+      "max_pairs": 6
+    },
+    "drag_to_bucket": {
+      "enabled": true,
+      "shuffle_items": true,
+      "min_items": 4,
+      "max_items": 8
+    }
+  }
+}
