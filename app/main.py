@@ -23,7 +23,8 @@ from app.routers import assistant as assistant_router
 from app.core.settings_static import STATIC_DIR, MEDIA_DIR  # app/static
 
 load_dotenv()
-Base.metadata.create_all(bind=engine)
+if os.getenv("DEV_AUTO_CREATE", "0") == "1":
+    Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="EduMath API")
 
