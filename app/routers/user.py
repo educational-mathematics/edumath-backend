@@ -93,3 +93,66 @@ def upload_avatar(
     current_user.avatar_url = f"/media/avatars/{fname}"
     db.add(current_user); db.commit(); db.refresh(current_user)
     return current_user
+
+@router.post("/me/avatar/select", response_model=UserOut)
+def select_avatar(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    avatar = body.get("avatar")
+
+    allowed = [
+        "/media/avatars/avatar1.png",
+        "/media/avatars/avatar2.png",
+        "/media/avatars/avatar3.png",
+        "/media/avatars/avatar4.png",
+        "/media/avatars/avatar5.png",
+        "/media/avatars/avatar6.png",
+        "/media/avatars/avatar7.png",
+        "/media/avatars/avatar8.png",
+        "/media/avatars/avatar9.png"
+    ]
+    
+    special_avatars = {
+        "slmd01436@gmail.com": ["/media/avatars/kimi.png"]
+    }
+    
+    user_email = current_user.email
+
+    extra = special_avatars.get(user_email, [])
+
+    final_allowed = allowed + extra
+
+    if avatar not in final_allowed:
+        raise HTTPException(status_code=400, detail="Avatar no válido")
+
+    current_user.avatar_url = avatar
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
+
+@router.get("/avatars")
+def get_available_avatars(current_user: UserModel = Depends(get_current_user)):
+
+    base = [
+        "/media/avatars/avatar1.png",
+        "/media/avatars/avatar2.png",
+        "/media/avatars/avatar3.png",
+        "/media/avatars/avatar4.png",
+        "/media/avatars/avatar5.png",
+        "/media/avatars/avatar6.png",
+        "/media/avatars/avatar7.png",
+        "/media/avatars/avatar8.png",
+        "/media/avatars/avatar9.png",
+    ]
+
+    special_avatars = {
+        "slmd01436@gmail.com": ["/media/avatars/kimi.png"]
+    }
+
+    extra = special_avatars.get(current_user.email, [])
+
+    return base + extra

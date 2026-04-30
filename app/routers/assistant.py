@@ -229,11 +229,26 @@ def resume_explanation(expl_id: str, db: Session = Depends(get_db), me: User = D
     if not rec or rec.user_id != me.id:
         raise HTTPException(404)
     if rec.status not in ("interrupted","failed"):
-        return {"ok": True}  # nada que hacer
+        return {"ok": True}
     rec.status = "in_progress"
     rec.notes = None
     db.add(rec); db.commit()
     threading.Thread(target=_worker_generate, args=(expl_id,), daemon=True).start()
+    return {"ok": True}
+
+@router.post("/explanations/{expl_id}/regenerate")
+def regenerate_explanation(expl_id: str, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+    rec = db.get(AssistantExplanation, expl_id)
+    if not rec or rec.user_id != me.id:
+        raise HTTPException(404)
+
+    rec.status = "in_progress"
+    rec.payload = {"topicTitle": (rec.payload or {}).get("topicTitle"), "paragraphs": []}
+    db.add(rec)
+    db.commit()
+
+    threading.Thread(target=_worker_generate, args=(expl_id,), daemon=True).start()
+
     return {"ok": True}
 
 # ---------- Worker principal ----------

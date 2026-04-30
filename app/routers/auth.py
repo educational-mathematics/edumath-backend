@@ -56,8 +56,36 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(),
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="Email o contraseña incorrectos")
     if not user.email_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
-                            detail="Verifica tu correo para iniciar sesión")
+        existing = db.query(EmailCode).filter(
+            EmailCode.email == user.email,
+            EmailCode.purpose == CodePurpose.register,
+            EmailCode.consumed == False
+        ).all()
+
+        for c in existing:
+            c.consumed = True
+
+        code = f"{secrets.randbelow(10**6):06d}"
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=120)
+
+        db.add(EmailCode(
+            email=user.email,
+            code=code,
+            purpose=CodePurpose.register,
+            expires_at=expires_at
+        ))
+        db.commit()
+
+        send_email_code(
+            to_email=user.email,
+            code=code,
+            purpose="Verificación de registro"
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="EMAIL_NOT_VERIFIED"
+        )
     
     return {"access_token": create_access_token(subject=user.email),
             "token_type": "bearer"}
